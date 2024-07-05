@@ -1,0 +1,9 @@
+[package]
+name = "untitled"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.28", features = ["full"] }
+sqlparser = "0.35"
+serde = { version = "1.0.203", features = ["derive"] }
