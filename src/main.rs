@@ -1,9 +1,9 @@
 mod storage;
 
+use crate::storage::{Database, DbResult};
 use std::sync::{Arc, RwLock};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
-use crate::storage::{Database, DbResult};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
