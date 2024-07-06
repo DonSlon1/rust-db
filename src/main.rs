@@ -1,4 +1,5 @@
 mod storage;
+mod test;
 
 use crate::storage::{Database, DbResult};
 use std::sync::{Arc, RwLock};

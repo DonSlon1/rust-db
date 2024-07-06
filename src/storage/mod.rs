@@ -1,4 +1,8 @@
-use sqlparser::ast::{ColumnDef, IndexType, ObjectName, ObjectType, Statement};
+use sqlparser::ast::SetExpr::Values;
+use sqlparser::ast::{
+    ColumnDef, Ident, IndexType, ObjectName, ObjectType, Query, SetExpr, Statement,
+    Values as OtherValues,
+};
 use sqlparser::parser::ParserError;
 use std::collections::HashMap;
 use std::error::Error;
@@ -43,12 +47,11 @@ impl Database {
                 self.create_table(name.to_string(), columns)
             }
             Statement::Insert {
-                columns,
                 table_name,
+                columns,
+                source,
                 ..
-            } => {
-                unimplemented!("Will work on next session")
-            }
+            } => self.insert(table_name, columns, source),
             Statement::Drop {
                 object_type,
                 if_exists,
@@ -95,8 +98,28 @@ impl Database {
         ))
     }
 
-    pub fn insert(&mut self, table: &str, values: Vec<Value>) -> DbResult<()> {
-        unimplemented!()
+    fn insert(
+        &mut self,
+        table_name: &ObjectName,
+        columns: &[Ident],
+        source: &Query,
+    ) -> Result<QueryResult, Box<dyn std::error::Error>> {
+        let table_name = table_name.to_string();
+        let table = self.tables.get_mut(&table_name).ok_or("Table not found")?;
+
+        if let Values(values) = &source.body.as_ref() {
+            for row in &values.rows {
+                for (column, value) in columns.iter().zip(row.iter()) {
+                    println!("column: {} , value: {}", column, value);
+                }
+            }
+            Ok(QueryResult::Success(format!(
+                "Inserted {} row(s)",
+                values.rows.len()
+            )))
+        } else {
+            Err("Unsupported INSERT format".into())
+        }
     }
 
     pub fn select(
