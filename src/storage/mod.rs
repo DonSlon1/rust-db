@@ -1,10 +1,11 @@
-use sqlparser::ast::Statement;
+use sqlparser::ast::{ColumnDef, IndexType, Statement};
 use std::collections::HashMap;
 use std::error::Error;
 
 // Main database struct
+#[derive(Clone)]
 pub struct Database {
-    tables: HashMap<String, String>,
+    tables: HashMap<String, Table>,
 }
 
 // Result type for database operations
@@ -32,9 +33,9 @@ impl Database {
     // Internal method to execute a parsed statement
     fn execute_statement(&mut self, stmt: &Statement) -> DbResult<QueryResult> {
         match stmt {
-            Statement::CreateTable { name, .. } => Ok(QueryResult::Success(
-                format!("Successfully created {}", name).to_string(),
-            )),
+            Statement::CreateTable { name,columns, .. } =>{
+                self.create_table(name.to_string(),columns)
+            },
             _ => {
                 unimplemented!()
             }
@@ -42,8 +43,13 @@ impl Database {
     }
 
     // Optional: Add methods for specific operations if you want a programmatic interface
-    pub fn create_table(&mut self, name: &str, columns: Vec<ColumnDef>) -> DbResult<()> {
-        unimplemented!()
+    pub fn create_table(&mut self, name: String, columns: &Vec<ColumnDef>) -> DbResult<QueryResult> {
+        if self.tables.contains_key(&name) {
+            return Ok(QueryResult::Fail("Table allergy exist".to_string()));
+        }
+        let mut table = Table::new(name.clone());
+        self.tables.insert(name,table);
+        Ok(QueryResult::Success("Successfully create table".to_string()))
     }
 
     pub fn insert(&mut self, table: &str, values: Vec<Value>) -> DbResult<()> {
@@ -62,26 +68,39 @@ impl Database {
     // Add more methods as needed...
 }
 
+#[derive(Clone)]
+pub struct Table {
+    name: String,
+    columns: Vec<ColumnDef>,
+    rows: Vec<Row>,
+    //todo add support for indexes
+    //indexes: HashMap<String,IndexType>
+}
+
+impl Table {
+    pub fn new(table_name: String) -> Self{
+        Table {
+            name: table_name,
+            columns: Vec::new(),
+            rows: Vec::new(),
+        }
+    }
+}
 // Represent a query result
 #[derive(Debug)]
 pub enum QueryResult {
     Success(String),
     Rows(Vec<Row>),
+    Fail(String)
     // Add more variants as needed
 }
 
 // Represent a row in a table
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct Row {
     data: HashMap<String, Value>,
 }
 
-// Represent a column definition
-pub struct ColumnDef {
-    name: String,
-    data_type: DataType,
-    // Add constraints if needed
-}
 
 // Represent data types
 pub enum DataType {
@@ -92,7 +111,7 @@ pub enum DataType {
 }
 
 // Represent a value
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub enum Value {
     Integer(i64),
     Float(f64),
