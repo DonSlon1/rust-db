@@ -1,7 +1,7 @@
 use sqlparser::ast::SetExpr::Values;
 use sqlparser::ast::{
-    ColumnDef, DataType as SqlDataType, Expr, Ident, IndexType, ObjectName, ObjectType, Query,
-    SetExpr, Statement, Values as Val,
+    ColumnDef, DataType, Expr, Ident, IndexType, ObjectName, ObjectType, Query, SetExpr, Statement,
+    Value, Values as Val,
 };
 use sqlparser::parser::ParserError;
 use std::collections::HashMap;
@@ -80,26 +80,7 @@ impl Database {
             return Ok(QueryResult::Fail("Table allergy exist".to_string()));
         }
         let mut table = Table::new(name.clone());
-        for col in columns {
-            let data_type = match &col.data_type {
-                SqlDataType::Int(_) => DataType::Integer,
-                SqlDataType::Float(_) => DataType::Float,
-                SqlDataType::String => DataType::String,
-                SqlDataType::Boolean => DataType::Boolean,
-                // Add more type conversions as needed
-                _ => {
-                    return Ok(QueryResult::Fail(format!(
-                        "Unsupported data type for column '{}'",
-                        col.name
-                    )))
-                }
-            };
-
-            table.columns.push(Column {
-                name: col.name.value.clone(),
-                data_type,
-            });
-        }
+        table.columns = columns.clone();
         self.tables.insert(name, table);
         Ok(QueryResult::Success(
             "Successfully create table".to_string(),
@@ -148,16 +129,10 @@ impl Database {
 #[derive(Clone)]
 pub struct Table {
     name: String,
-    columns: Vec<Column>,
+    columns: Vec<ColumnDef>,
     rows: Vec<Row>,
     //todo add support for indexes
     //indexes: HashMap<String,IndexType>
-}
-
-#[derive(Clone)]
-pub struct Column {
-    name: String,
-    data_type: DataType,
 }
 
 impl Table {
@@ -173,30 +148,12 @@ impl Table {
         for row in &values.rows {
             let mut new_row = Vec::new();
             for value in row {
-                let value = match value {
-                    Expr::Value(v) => match v {
-                        sqlparser::ast::Value::Number(n, _) => {
-                            if n.contains('.') {
-                                Value::Float(
-                                    n.parse().map_err(|e| format!("Invalid float: {}", e))?,
-                                )
-                            } else {
-                                Value::Integer(
-                                    n.parse().map_err(|e| format!("Invalid integer: {}", e))?,
-                                )
-                            }
-                        }
-                        sqlparser::ast::Value::SingleQuotedString(s)
-                        | sqlparser::ast::Value::DoubleQuotedString(s) => Value::String(s.clone()),
-                        sqlparser::ast::Value::Boolean(b) => Value::Boolean(*b),
-                        sqlparser::ast::Value::Null => Value::Null,
-                        // Handle other value types...
-                        _ => return Err("Unsupported value type".into()),
-                    },
-                    // Handle other expression types...
-                    _ => return Err("Unsupported expression type".into()),
-                };
-                new_row.push(value);
+                match value {
+                    Expr::Value(sql_value) => {
+                        new_row.push(sql_value.clone());
+                    }
+                    _ => {}
+                }
             }
             if new_row.len() != self.columns.len() {
                 return Err("Number of values doesn't match number of columns".into());
@@ -220,9 +177,7 @@ impl Table {
     fn type_match(value: &Value, data_type: &DataType) -> bool {
         matches!(
             (value, data_type),
-            (Value::Integer(_), DataType::Integer)
-                | (Value::Float(_), DataType::Float)
-                | (Value::String(_), DataType::String)
+            (Value::Number(_, _), DataType::Integer(_))
                 | (Value::Boolean(_), DataType::Boolean)
                 | (Value::Null, _)
         )
@@ -248,18 +203,9 @@ impl Row {
     }
 }
 
-// Represent data types
-#[derive(Clone)]
-pub enum DataType {
-    Integer,
-    Float,
-    String,
-    Boolean,
-}
-
 // Represent a value
 #[derive(Debug, Clone)]
-pub enum Value {
+pub enum Valuess {
     Integer(i64),
     Float(f64),
     String(String),
@@ -270,8 +216,8 @@ pub enum Value {
 
 // Represent a condition for SELECT statements
 pub enum Condition {
-    Equals(String, Value),
-    GreaterThan(String, Value),
-    LessThan(String, Value),
+    Equals(String, Valuess),
+    GreaterThan(String, Valuess),
+    LessThan(String, Valuess),
     // Add more conditions as needed
 }
