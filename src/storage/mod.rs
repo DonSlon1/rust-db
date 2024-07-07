@@ -1,7 +1,7 @@
 use sqlparser::ast::SetExpr::Values;
 use sqlparser::ast::{
-    ColumnDef, Ident, IndexType, ObjectName, ObjectType, Query, SetExpr, Statement,
-    Values as OtherValues,
+    ColumnDef, DataType as SqlDataType, Expr, Ident, IndexType, ObjectName, ObjectType, Query,
+    SetExpr, Statement, Values as Val,
 };
 use sqlparser::parser::ParserError;
 use std::collections::HashMap;
@@ -80,7 +80,26 @@ impl Database {
             return Ok(QueryResult::Fail("Table allergy exist".to_string()));
         }
         let mut table = Table::new(name.clone());
-        table.columns = columns.clone();
+        for col in columns {
+            let data_type = match &col.data_type {
+                SqlDataType::Int(_) => DataType::Integer,
+                SqlDataType::Float(_) => DataType::Float,
+                SqlDataType::String => DataType::String,
+                SqlDataType::Boolean => DataType::Boolean,
+                // Add more type conversions as needed
+                _ => {
+                    return Ok(QueryResult::Fail(format!(
+                        "Unsupported data type for column '{}'",
+                        col.name
+                    )))
+                }
+            };
+
+            table.columns.push(Column {
+                name: col.name.value.clone(),
+                data_type,
+            });
+        }
         self.tables.insert(name, table);
         Ok(QueryResult::Success(
             "Successfully create table".to_string(),
@@ -103,20 +122,12 @@ impl Database {
         table_name: &ObjectName,
         columns: &[Ident],
         source: &Query,
-    ) -> Result<QueryResult, Box<dyn std::error::Error>> {
+    ) -> DbResult<QueryResult> {
         let table_name = table_name.to_string();
         let table = self.tables.get_mut(&table_name).ok_or("Table not found")?;
 
         if let Values(values) = &source.body.as_ref() {
-            for row in &values.rows {
-                for (column, value) in columns.iter().zip(row.iter()) {
-                    println!("column: {} , value: {}", column, value);
-                }
-            }
-            Ok(QueryResult::Success(format!(
-                "Inserted {} row(s)",
-                values.rows.len()
-            )))
+            table.insert(values, columns)
         } else {
             Err("Unsupported INSERT format".into())
         }
@@ -137,10 +148,16 @@ impl Database {
 #[derive(Clone)]
 pub struct Table {
     name: String,
-    columns: Vec<ColumnDef>,
+    columns: Vec<Column>,
     rows: Vec<Row>,
     //todo add support for indexes
     //indexes: HashMap<String,IndexType>
+}
+
+#[derive(Clone)]
+pub struct Column {
+    name: String,
+    data_type: DataType,
 }
 
 impl Table {
@@ -150,6 +167,65 @@ impl Table {
             columns: Vec::new(),
             rows: Vec::new(),
         }
+    }
+
+    pub fn insert(&mut self, values: &Val, columns: &[Ident]) -> DbResult<QueryResult> {
+        for row in &values.rows {
+            let mut new_row = Vec::new();
+            for value in row {
+                let value = match value {
+                    Expr::Value(v) => match v {
+                        sqlparser::ast::Value::Number(n, _) => {
+                            if n.contains('.') {
+                                Value::Float(
+                                    n.parse().map_err(|e| format!("Invalid float: {}", e))?,
+                                )
+                            } else {
+                                Value::Integer(
+                                    n.parse().map_err(|e| format!("Invalid integer: {}", e))?,
+                                )
+                            }
+                        }
+                        sqlparser::ast::Value::SingleQuotedString(s)
+                        | sqlparser::ast::Value::DoubleQuotedString(s) => Value::String(s.clone()),
+                        sqlparser::ast::Value::Boolean(b) => Value::Boolean(*b),
+                        sqlparser::ast::Value::Null => Value::Null,
+                        // Handle other value types...
+                        _ => return Err("Unsupported value type".into()),
+                    },
+                    // Handle other expression types...
+                    _ => return Err("Unsupported expression type".into()),
+                };
+                new_row.push(value);
+            }
+            if new_row.len() != self.columns.len() {
+                return Err("Number of values doesn't match number of columns".into());
+            }
+
+            for (value, column) in new_row.iter().zip(self.columns.iter()) {
+                if !Self::type_match(value, &column.data_type) {
+                    return Err(format!("Type mismatch for column '{}'", column.name).into());
+                }
+            }
+
+            self.rows.push(Row::new(new_row));
+            //table.insert(new_row)?;
+        }
+        Ok(QueryResult::Success(format!(
+            "Inserted {} row(s)",
+            values.rows.len()
+        )))
+    }
+
+    fn type_match(value: &Value, data_type: &DataType) -> bool {
+        matches!(
+            (value, data_type),
+            (Value::Integer(_), DataType::Integer)
+                | (Value::Float(_), DataType::Float)
+                | (Value::String(_), DataType::String)
+                | (Value::Boolean(_), DataType::Boolean)
+                | (Value::Null, _)
+        )
     }
 }
 // Represent a query result
@@ -163,10 +239,17 @@ pub enum QueryResult {
 // Represent a row in a table
 #[derive(Debug, Clone)]
 pub struct Row {
-    data: HashMap<String, Value>,
+    data: Vec<Value>,
+}
+
+impl Row {
+    pub fn new(data: Vec<Value>) -> Self {
+        Row { data }
+    }
 }
 
 // Represent data types
+#[derive(Clone)]
 pub enum DataType {
     Integer,
     Float,

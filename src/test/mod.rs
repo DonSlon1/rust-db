@@ -13,12 +13,12 @@ mod tests {
     #[test]
     fn test_create_table() {
         let mut db = Database::new();
-        let result = db.execute("CREATE TABLE users (id INT, name VARCHAR(255))");
+        let result = db.execute("CREATE TABLE users (id INT, name STRING)");
         assert!(result.is_ok());
         assert!(matches!(result.unwrap(), QueryResult::Success(_)));
 
         // Verify the table exists by trying to create it again
-        let duplicate_result = db.execute("CREATE TABLE users (id INT, name VARCHAR(255))");
+        let duplicate_result = db.execute("CREATE TABLE users (id INT, name STRING)");
         assert!(matches!(duplicate_result.unwrap(), QueryResult::Fail(_)));
     }
 
@@ -78,7 +78,7 @@ mod tests {
         let mut db = Database::new();
 
         // Create a table
-        let create_result = db.execute("CREATE TABLE users (id INT, name VARCHAR(255))");
+        let create_result = db.execute("CREATE TABLE users (id INT, name STRING)");
         assert!(matches!(create_result.unwrap(), QueryResult::Success(_)));
 
         // Insert a row
@@ -100,7 +100,7 @@ mod tests {
     fn test_insert_with_missing_columns() {
         let mut db = Database::new();
 
-        db.execute("CREATE TABLE users (id INT, name VARCHAR(255))")
+        db.execute("CREATE TABLE users (id INT, name STRING)")
             .unwrap();
 
         let insert_result = db.execute("INSERT INTO users (id) VALUES (1)");
@@ -113,7 +113,7 @@ mod tests {
     fn test_insert_with_extra_columns() {
         let mut db = Database::new();
 
-        db.execute("CREATE TABLE users (id INT, name VARCHAR(255))")
+        db.execute("CREATE TABLE users (id INT, name STRING)")
             .unwrap();
 
         let insert_result = db.execute("INSERT INTO users (id, name, age) VALUES (1, 'Alice', 30)");
@@ -124,7 +124,7 @@ mod tests {
     fn test_insert_with_type_mismatch() {
         let mut db = Database::new();
 
-        db.execute("CREATE TABLE users (id INT, name VARCHAR(255))")
+        db.execute("CREATE TABLE users (id INT, name STRING)")
             .unwrap();
 
         let insert_result =
@@ -136,7 +136,7 @@ mod tests {
     fn test_multiple_inserts() {
         let mut db = Database::new();
 
-        db.execute("CREATE TABLE users (id INT, name VARCHAR(255))")
+        db.execute("CREATE TABLE users (id INT, name STRING)")
             .unwrap();
 
         let insert1 = db.execute("INSERT INTO users (id, name) VALUES (1, 'Alice')");
