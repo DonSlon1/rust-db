@@ -47,11 +47,8 @@ impl Database {
                 self.create_table(name.to_string(), columns)
             }
             Statement::Insert {
-                table_name,
-                columns,
-                source,
-                ..
-            } => self.insert(table_name, columns, source),
+                table_name, source, ..
+            } => self.insert(table_name, source),
             Statement::Drop {
                 object_type,
                 if_exists,
@@ -63,13 +60,14 @@ impl Database {
                     unimplemented!("It will probably be not implemented")
                 }
             },
-
-            _ => {
-                unimplemented!()
-            }
+            Statement::Query(query) => self.select(query),
+            _ => Err("Unimplemented".into()),
         }
     }
 
+    pub fn select(&mut self, query: &Box<Query>) -> DbResult<QueryResult> {
+        todo!()
+    }
     // Optional: Add methods for specific operations if you want a programmatic interface
     pub fn create_table(
         &mut self,
@@ -98,32 +96,16 @@ impl Database {
         ))
     }
 
-    fn insert(
-        &mut self,
-        table_name: &ObjectName,
-        columns: &[Ident],
-        source: &Query,
-    ) -> DbResult<QueryResult> {
+    fn insert(&mut self, table_name: &ObjectName, source: &Query) -> DbResult<QueryResult> {
         let table_name = table_name.to_string();
         let table = self.tables.get_mut(&table_name).ok_or("Table not found")?;
 
         if let Values(values) = &source.body.as_ref() {
-            table.insert(values, columns)
+            table.insert(values)
         } else {
             Err("Unsupported INSERT format".into())
         }
     }
-
-    pub fn select(
-        &self,
-        table: &str,
-        columns: Vec<&str>,
-        condition: Option<Condition>,
-    ) -> DbResult<Vec<Row>> {
-        unimplemented!()
-    }
-
-    // Add more methods as needed...
 }
 
 #[derive(Clone)]
@@ -144,7 +126,11 @@ impl Table {
         }
     }
 
-    pub fn insert(&mut self, values: &Val, columns: &[Ident]) -> DbResult<QueryResult> {
+    pub fn select(&mut self) -> DbResult<QueryResult> {
+        todo!()
+    }
+
+    pub fn insert(&mut self, values: &Val) -> DbResult<QueryResult> {
         for row in &values.rows {
             let mut new_row = Vec::new();
             for value in row {

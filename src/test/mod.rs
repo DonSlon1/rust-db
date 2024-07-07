@@ -148,4 +148,120 @@ mod tests {
         assert!(matches!(insert2.unwrap(), QueryResult::Success(_)));
         assert!(matches!(insert3.unwrap(), QueryResult::Success(_)));
     }
+    #[test]
+    fn test_select_all_from_table() {
+        let mut db = Database::new();
+        db.execute("CREATE TABLE users (id INT, name STRING)")
+            .unwrap();
+        db.execute("INSERT INTO users (id, name) VALUES (1, 'Alice')")
+            .unwrap();
+        db.execute("INSERT INTO users (id, name) VALUES (2, 'Bob')")
+            .unwrap();
+
+        let result = db.execute("SELECT * FROM users");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_select_specific_columns() {
+        let mut db = Database::new();
+        db.execute("CREATE TABLE users (id INT, name STRING, age INT)")
+            .unwrap();
+        db.execute("INSERT INTO users (id, name, age) VALUES (1, 'Alice', 30)")
+            .unwrap();
+
+        let result = db.execute("SELECT name, age FROM users");
+        assert!(result.is_ok());
+        if let QueryResult::Success(data) = result.unwrap() {
+            assert_eq!(data.len(), 1);
+        } else {
+            panic!("Expected Success QueryResult");
+        }
+    }
+
+    #[test]
+    fn test_select_with_where_clause() {
+        let mut db = Database::new();
+        db.execute("CREATE TABLE users (id INT, name STRING, age INT)")
+            .unwrap();
+        db.execute("INSERT INTO users (id, name, age) VALUES (1, 'Alice', 30)")
+            .unwrap();
+        db.execute("INSERT INTO users (id, name, age) VALUES (2, 'Bob', 25)")
+            .unwrap();
+
+        let result = db.execute("SELECT * FROM users WHERE age > 25");
+        assert!(result.is_ok());
+        if let QueryResult::Success(data) = result.unwrap() {
+            assert_eq!(data.len(), 1);
+        } else {
+            panic!("Expected Success QueryResult");
+        }
+    }
+
+    #[test]
+    fn test_select_from_empty_table() {
+        let mut db = Database::new();
+        db.execute("CREATE TABLE empty_table (id INT)").unwrap();
+
+        let result = db.execute("SELECT * FROM empty_table");
+        assert!(result.is_ok());
+        if let QueryResult::Success(data) = result.unwrap() {
+            assert_eq!(data.len(), 0);
+        } else {
+            panic!("Expected Success QueryResult");
+        }
+    }
+
+    #[test]
+    fn test_select_from_nonexistent_table() {
+        let mut db = Database::new();
+
+        let result = db.execute("SELECT * FROM nonexistent_table");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_select_nonexistent_column() {
+        let mut db = Database::new();
+        db.execute("CREATE TABLE users (id INT, name STRING)")
+            .unwrap();
+
+        let result = db.execute("SELECT nonexistent_column FROM users");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_select_with_order_by() {
+        let mut db = Database::new();
+        db.execute("CREATE TABLE users (id INT, name STRING)")
+            .unwrap();
+        db.execute("INSERT INTO users (id, name) VALUES (2, 'Bob')")
+            .unwrap();
+        db.execute("INSERT INTO users (id, name) VALUES (1, 'Alice')")
+            .unwrap();
+
+        let result = db.execute("SELECT * FROM users ORDER BY id");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_select_with_limit() {
+        let mut db = Database::new();
+        db.execute("CREATE TABLE users (id INT, name STRING)")
+            .unwrap();
+        db.execute("INSERT INTO users (id, name) VALUES (1, 'Alice')")
+            .unwrap();
+        db.execute("INSERT INTO users (id, name) VALUES (2, 'Bob')")
+            .unwrap();
+        db.execute("INSERT INTO users (id, name) VALUES (3, 'Charlie')")
+            .unwrap();
+
+        let result = db.execute("SELECT * FROM users LIMIT 2");
+        assert!(result.is_ok());
+        if let QueryResult::Success(data) = result.unwrap() {
+            assert_eq!(data.len(), 2);
+        } else {
+            panic!("Expected Success QueryResult");
+        }
+    }
 }
