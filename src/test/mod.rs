@@ -2,6 +2,7 @@
 mod tests {
     use crate::storage::*;
     use sqlparser::ast::{ColumnDef, DataType as SqlDataType};
+    use std::error::Error;
 
     #[test]
     fn test_database_creation() {
@@ -93,7 +94,7 @@ mod tests {
         let mut db = Database::new();
 
         let insert_result = db.execute("INSERT INTO nonexistent (id, name) VALUES (1, 'Alice')");
-        assert!(matches!(insert_result.unwrap(), QueryResult::Fail(_)));
+        assert!(matches!(insert_result, Err(..)));
     }
 
     #[test]
@@ -106,7 +107,7 @@ mod tests {
         let insert_result = db.execute("INSERT INTO users (id) VALUES (1)");
         // The behavior here depends on how you want to handle missing columns.
         // This test assumes it's a failure, but you might choose to allow NULL values.
-        assert!(matches!(insert_result.unwrap(), QueryResult::Fail(_)));
+        assert!(matches!(insert_result, Err(..)));
     }
 
     #[test]
@@ -117,7 +118,7 @@ mod tests {
             .unwrap();
 
         let insert_result = db.execute("INSERT INTO users (id, name, age) VALUES (1, 'Alice', 30)");
-        assert!(matches!(insert_result.unwrap(), QueryResult::Fail(_)));
+        assert!(matches!(insert_result, Err(..)));
     }
 
     #[test]
@@ -129,7 +130,7 @@ mod tests {
 
         let insert_result =
             db.execute("INSERT INTO users (id, name) VALUES ('not an int', 'Alice')");
-        assert!(matches!(insert_result.unwrap(), QueryResult::Fail(_)));
+        assert!(matches!(insert_result, Err(..)));
     }
 
     #[test]
