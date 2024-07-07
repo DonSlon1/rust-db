@@ -175,12 +175,31 @@ impl Table {
     }
 
     fn type_match(value: &Value, data_type: &DataType) -> bool {
-        matches!(
-            (value, data_type),
-            (Value::Number(_, _), DataType::Integer(_))
-                | (Value::Boolean(_), DataType::Boolean)
-                | (Value::Null, _)
-        )
+        match (value, data_type) {
+            // Number types
+            (Value::Number(_, false), DataType::Int(_)) => true,
+            (Value::Number(_, false), DataType::BigInt(_)) => true,
+            (Value::Number(_, true), DataType::Float(_)) => true,
+            (Value::Number(_, true), DataType::Double) => true,
+            (Value::Number(_, _), DataType::Decimal(_)) => true,
+
+            // String types
+            (Value::SingleQuotedString(_), DataType::Text) => true,
+            (Value::SingleQuotedString(_), DataType::String) => true,
+            (Value::SingleQuotedString(_), DataType::Varchar(_)) => true,
+            (Value::DoubleQuotedString(_), DataType::Text) => true,
+            (Value::DoubleQuotedString(_), DataType::String) => true,
+            (Value::DoubleQuotedString(_), DataType::Varchar(_)) => true,
+
+            // Boolean type
+            (Value::Boolean(_), DataType::Boolean) => true,
+
+            // Null can match any type
+            (Value::Null, _) => true,
+
+            // If no match is found, return false
+            _ => false,
+        }
     }
 }
 // Represent a query result
