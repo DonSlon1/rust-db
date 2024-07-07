@@ -1,9 +1,10 @@
 use sqlparser::ast::SetExpr::Values;
 use sqlparser::ast::{
-    ColumnDef, DataType, Expr, Ident, IndexType, ObjectName, ObjectType, Query, SetExpr, Statement,
-    Value, Values as Val,
+    ColumnDef, DataType, Expr, Ident, IndexType, ObjectName, ObjectType, Query, SelectItem,
+    SetExpr, Statement, TableFactor, Value, Values as Val,
 };
 use sqlparser::parser::ParserError;
+use sqlparser::test_utils::table;
 use std::collections::HashMap;
 use std::error::Error;
 
@@ -60,13 +61,62 @@ impl Database {
                     unimplemented!("It will probably be not implemented")
                 }
             },
-            Statement::Query(query) => self.select(query),
+            Statement::Query(query) => self.select(*query.clone()),
             _ => Err("Unimplemented".into()),
         }
     }
 
-    pub fn select(&mut self, query: &Box<Query>) -> DbResult<QueryResult> {
-        todo!()
+    pub fn select(&mut self, query: Query) -> DbResult<QueryResult> {
+        let table_name = match &*query.body {
+            SetExpr::Select(select) => {
+                if let Some(table_with_join) = select.from.first() {
+                    match &table_with_join.relation {
+                        TableFactor::Table { name, .. } => name.to_string(),
+                        _ => return Err("Unsupported FROM clause".into()),
+                    }
+                } else {
+                    return Err("No table specified in FROM clause".into());
+                }
+            }
+            _ => return Err("Unsupported query type".into()),
+        };
+
+        let table = self.tables.get(&table_name).ok_or("Table not found")?;
+
+        // Determine which columns to select
+        let select_columns = match &*query.body {
+            SetExpr::Select(select) => select
+                .projection
+                .iter()
+                .map(|item| match item {
+                    SelectItem::Wildcard(..) => Ok(table
+                        .columns
+                        .iter()
+                        .map(|v| v.name.to_string().clone())
+                        .collect()),
+                    SelectItem::UnnamedExpr(Expr::Identifier(ident)) => Ok(ident.value.clone()),
+                    SelectItem::ExprWithAlias {
+                        expr: Expr::Identifier(ident),
+                        ..
+                    } => Ok(ident.value.clone()),
+                    _ => Err("Unsupported select item".into()),
+                })
+                .collect::<Result<Vec<String>, Box<dyn Error>>>()?,
+            _ => return Err("Unsupported query type".into()),
+        };
+
+        let mut response = SelectResult::new();
+        response.rows = table
+            .rows
+            .iter()
+            .map(|v| v.data.iter().map(|b| b.to_string()).collect())
+            .collect();
+        response.columns = table
+            .columns
+            .iter()
+            .map(|v| v.name.to_string().clone())
+            .collect();
+        Ok(QueryResult::Rows(response))
     }
     // Optional: Add methods for specific operations if you want a programmatic interface
     pub fn create_table(
@@ -124,10 +174,6 @@ impl Table {
             columns: Vec::new(),
             rows: Vec::new(),
         }
-    }
-
-    pub fn select(&mut self) -> DbResult<QueryResult> {
-        todo!()
     }
 
     pub fn insert(&mut self, values: &Val) -> DbResult<QueryResult> {
@@ -189,13 +235,27 @@ impl Table {
     }
 }
 // Represent a query result
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum QueryResult {
     Success(String),
-    Rows(Vec<Row>),
+    Rows(SelectResult),
     Fail(String), // Add more variants as needed
 }
 
+#[derive(Debug, Clone)]
+pub struct SelectResult {
+    columns: Vec<String>,
+    rows: Vec<Vec<String>>,
+}
+
+impl SelectResult {
+    pub fn new() -> Self {
+        SelectResult {
+            columns: Vec::new(),
+            rows: Vec::new(),
+        }
+    }
+}
 // Represent a row in a table
 #[derive(Debug, Clone)]
 pub struct Row {
