@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use sqlparser::ast::SetExpr::Values;
 use sqlparser::ast::{
-    BinaryOperator, ColumnDef, DataType, Expr, ObjectName, ObjectType, Query, SelectItem, SetExpr,
-    Statement, TableFactor, Value, Values as Val,
+    BinaryOperator, ColumnDef, DataType, Expr, ObjectName, ObjectType, Offset, Query, SelectItem,
+    SetExpr, Statement, TableFactor, Value, Values as Val,
 };
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -127,7 +127,7 @@ impl Database {
             })
             .collect::<Result<Vec<usize>, String>>()?;
 
-        let filtered_rows = match &*query.body {
+        let mut filtered_rows = match &*query.body {
             SetExpr::Select(select) => {
                 if let Some(selection) = &select.selection {
                     table
@@ -143,7 +143,16 @@ impl Database {
             _ => return Err("Unsupported query type".into()),
         };
 
-        // Select specified columns
+        if let Some(offset) = &query.offset {
+            let offset_value = Self::evaluate_offset_expr(offset)?;
+            filtered_rows = filtered_rows.into_iter().skip(offset_value).collect();
+        }
+
+        if let Some(limit) = &query.limit {
+            let limit_value = Self::evaluate_limit_expr(limit)?;
+            filtered_rows.truncate(limit_value);
+        }
+
         let result_rows = filtered_rows
             .clone()
             .into_iter()
@@ -160,6 +169,24 @@ impl Database {
         response.columns = select_columns;
         Ok(QueryResult::Rows(response))
     }
+    fn evaluate_limit_expr(limit: &Expr) -> DbResult<usize> {
+        match limit {
+            Expr::Value(Value::Number(n, _)) => {
+                n.parse::<usize>().map_err(|_| "Invalid LIMIT value".into())
+            }
+            _ => Err("Unsupported LIMIT expression".into()),
+        }
+    }
+
+    fn evaluate_offset_expr(offset: &Offset) -> DbResult<usize> {
+        match offset.value.clone() {
+            Expr::Value(Value::Number(n, _)) => n
+                .parse::<usize>()
+                .map_err(|_| "Invalid OFFSET value".into()),
+            _ => Err("Unsupported OFFSET expression".into()),
+        }
+    }
+
     // Optional: Add methods for specific operations if you want a programmatic interface
     pub fn create_table(
         &mut self,
@@ -240,15 +267,51 @@ impl Database {
             Expr::IsNull(left) => {
                 matches!(self.evaluate_expr(left, row, columns), Value::Null)
             }
-            Expr::IsNotNull(_) => false,
+            Expr::IsNotNull(left) => !matches!(self.evaluate_expr(left, row, columns), Value::Null),
             Expr::IsUnknown(_) => false,
             Expr::IsNotUnknown(_) => false,
             Expr::IsDistinctFrom(_, _) => false,
             Expr::IsNotDistinctFrom(_, _) => false,
-            Expr::InList { .. } => false,
+            Expr::InList {
+                expr,
+                list,
+                negated,
+            } => {
+                let value = self.evaluate_expr(expr, row, columns);
+                let resoult = list
+                    .iter()
+                    .any(|e| self.evaluate_expr(e, row, columns) == value);
+                if !negated {
+                    resoult
+                } else {
+                    !resoult
+                }
+            }
             Expr::InSubquery { .. } => false,
             Expr::InUnnest { .. } => false,
-            Expr::Between { .. } => false,
+            Expr::Between {
+                expr,
+                low,
+                high,
+                negated,
+            } => {
+                let value = self.evaluate_expr(expr, row, columns);
+                let low = self.evaluate_expr(low, row, columns);
+                let high = self.evaluate_expr(high, row, columns);
+                if value >= low && high >= value {
+                    if !negated {
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    if !negated {
+                        false
+                    } else {
+                        true
+                    }
+                }
+            }
             Expr::Like { .. } => false,
             Expr::ILike { .. } => false,
             Expr::SimilarTo { .. } => false,

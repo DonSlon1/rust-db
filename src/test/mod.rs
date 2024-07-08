@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::storage::*;
+    use sqlparser::ast::Value;
 
     #[test]
     fn test_database_creation() {
@@ -322,6 +323,14 @@ mod tests {
         } else {
             panic!("Expected Success QueryResult");
         }
+
+        let result = db.execute("SELECT * FROM users WHERE name NOT IN ('Alice', 'Bob')");
+        assert!(result.is_ok());
+        if let QueryResult::Rows(data) = result.unwrap() {
+            assert_eq!(data.rows.len(), 1);
+        } else {
+            panic!("Expected Success QueryResult");
+        }
     }
 
     #[test]
@@ -343,6 +352,13 @@ mod tests {
         } else {
             panic!("Expected Success QueryResult");
         }
+        let result = db.execute("SELECT * FROM users WHERE age NOT BETWEEN 25 AND 32");
+        assert!(result.is_ok());
+        if let QueryResult::Rows(data) = result.unwrap() {
+            assert_eq!(data.rows.len(), 1);
+        } else {
+            panic!("Expected Success QueryResult");
+        }
     }
 
     #[test]
@@ -355,7 +371,18 @@ mod tests {
         db.execute("INSERT INTO users (id, name, email) VALUES (2, 'Bob', NULL)")
             .unwrap();
 
+        db.execute("INSERT INTO users (id, name, email) VALUES (3, 'Robin', NULL)")
+            .unwrap();
+
         let result = db.execute("SELECT * FROM users WHERE email IS NULL");
+        assert!(result.is_ok());
+        if let QueryResult::Rows(data) = result.unwrap() {
+            assert_eq!(data.rows.len(), 2);
+        } else {
+            panic!("Expected Success QueryResult");
+        }
+
+        let result = db.execute("SELECT * FROM users WHERE email IS NOT NULL");
         assert!(result.is_ok());
         if let QueryResult::Rows(data) = result.unwrap() {
             assert_eq!(data.rows.len(), 1);
@@ -473,6 +500,79 @@ mod tests {
             assert_eq!(data.rows.len(), 2);
         } else {
             panic!("Expected Success QueryResult");
+        }
+    }
+
+    #[test]
+    fn test_select_with_string_between() {
+        let mut db = Database::new();
+        db.execute("CREATE TABLE fruits (id INT, name STRING)")
+            .unwrap();
+        db.execute("INSERT INTO fruits (id, name) VALUES (1, 'Apple')")
+            .unwrap();
+        db.execute("INSERT INTO fruits (id, name) VALUES (2, 'Banana')")
+            .unwrap();
+        db.execute("INSERT INTO fruits (id, name) VALUES (3, 'Cherry')")
+            .unwrap();
+        db.execute("INSERT INTO fruits (id, name) VALUES (4, 'Date')")
+            .unwrap();
+        db.execute("INSERT INTO fruits (id, name) VALUES (5, 'Elderberry')")
+            .unwrap();
+
+        let result = db.execute("SELECT * FROM fruits WHERE name BETWEEN 'B' AND 'D'");
+        assert!(result.is_ok());
+        if let QueryResult::Rows(data) = result.unwrap() {
+            assert_eq!(data.rows.len(), 3);
+            let names: Vec<String> = data
+                .rows
+                .iter()
+                .map(|row| match row.get(2).unwrap() {
+                    Value::SingleQuotedString(s) => s.clone(),
+                    _ => panic!("Expected string value"),
+                })
+                .collect();
+            assert!(names.contains(&"Banana".to_string()));
+            assert!(names.contains(&"Cherry".to_string()));
+            assert!(names.contains(&"Date".to_string()));
+            assert!(!names.contains(&"Apple".to_string()));
+            assert!(!names.contains(&"Elderberry".to_string()));
+        } else {
+            panic!("Expected Select QueryResult");
+        }
+    }
+
+    #[test]
+    fn test_select_with_string_between_case_sensitive() {
+        let mut db = Database::new();
+        db.execute("CREATE TABLE words (id INT, word STRING)")
+            .unwrap();
+        db.execute("INSERT INTO words (id, word) VALUES (1, 'apple')")
+            .unwrap();
+        db.execute("INSERT INTO words (id, word) VALUES (2, 'Banana')")
+            .unwrap();
+        db.execute("INSERT INTO words (id, word) VALUES (3, 'cherry')")
+            .unwrap();
+        db.execute("INSERT INTO words (id, word) VALUES (4, 'Date')")
+            .unwrap();
+
+        let result = db.execute("SELECT * FROM words WHERE word BETWEEN 'A' AND 'Z'");
+        assert!(result.is_ok());
+        if let QueryResult::Rows(data) = result.unwrap() {
+            assert_eq!(data.rows.len(), 2);
+            let words: Vec<String> = data
+                .rows
+                .iter()
+                .map(|row| match row.get(2).unwrap() {
+                    Value::SingleQuotedString(s) => s.clone(),
+                    _ => panic!("Expected string value"),
+                })
+                .collect();
+            assert!(words.contains(&"Banana".to_string()));
+            assert!(words.contains(&"Date".to_string()));
+            assert!(!words.contains(&"apple".to_string()));
+            assert!(!words.contains(&"cherry".to_string()));
+        } else {
+            panic!("Expected Select QueryResult");
         }
     }
 }
