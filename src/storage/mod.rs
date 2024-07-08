@@ -1,10 +1,13 @@
+use serde::{Deserialize, Serialize};
 use sqlparser::ast::SetExpr::Values;
 use sqlparser::ast::{
-    ColumnDef, DataType, Expr, ObjectName, ObjectType, Query, SelectItem, SetExpr, Statement,
-    TableFactor, Value, Values as Val,
+    BinaryOperator, ColumnDef, DataType, Expr, ObjectName, ObjectType, Query, SelectItem, SetExpr,
+    Statement, TableFactor, Value, Values as Val,
 };
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::error::Error;
+use std::ops::Index;
 
 // Main database struct
 #[derive(Clone)]
@@ -124,9 +127,24 @@ impl Database {
             })
             .collect::<Result<Vec<usize>, String>>()?;
 
+        let filtered_rows = match &*query.body {
+            SetExpr::Select(select) => {
+                if let Some(selection) = &select.selection {
+                    table
+                        .rows
+                        .iter()
+                        .filter(|row| self.evaluate_condition(selection, row, &table.columns))
+                        .cloned()
+                        .collect()
+                } else {
+                    table.rows.clone()
+                }
+            }
+            _ => return Err("Unsupported query type".into()),
+        };
+
         // Select specified columns
-        let result_rows = table
-            .rows
+        let result_rows = filtered_rows
             .clone()
             .into_iter()
             .map(|row| {
@@ -136,6 +154,7 @@ impl Database {
                     .collect()
             })
             .collect();
+
         let mut response = SelectResult::new();
         response.rows = result_rows;
         response.columns = select_columns;
@@ -177,6 +196,40 @@ impl Database {
             table.insert(values)
         } else {
             Err("Unsupported INSERT format".into())
+        }
+    }
+
+    fn evaluate_condition(&self, condition: &Expr, row: &Row, columns: &Vec<ColumnDef>) -> bool {
+        match condition {
+            Expr::BinaryOp { left, right, op } => {
+                let left_value = self.evaluate_expr(left, row, columns);
+                let right_value = self.evaluate_expr(right, row, columns);
+                match op {
+                    BinaryOperator::Eq => left_value == right_value,
+                    _ => false,
+                }
+            }
+            _ => false,
+        }
+    }
+
+    fn compare_values(left: Value, right: Value) -> Option<Ordering> {
+        return Some(Ordering::Greater);
+    }
+
+    fn evaluate_expr(&self, expr: &Expr, row: &Row, columns: &Vec<ColumnDef>) -> Value {
+        match expr {
+            Expr::Identifier(ident) => {
+                let col_index = columns
+                    .iter()
+                    .position(|c| c.name.value.eq(&ident.value))
+                    .expect("Column not found");
+                row.data[col_index].clone()
+            }
+            Expr::Value(v) => match v {
+                _ => v.clone(),
+            },
+            _ => Value::Null,
         }
     }
 }
@@ -264,7 +317,30 @@ pub enum QueryResult {
     Rows(SelectResult),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct SelectResultResponse {
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<String>>,
+}
+
+impl Into<SelectResultResponse> for SelectResult {
+    fn into(self) -> SelectResultResponse {
+        let mut result = SelectResultResponse {
+            rows: Vec::new(),
+            columns: Vec::new(),
+        };
+        result.columns = self.columns;
+        let values: Vec<Vec<String>> = self
+            .rows
+            .iter()
+            .map(|c| c.iter().map(|v| v.to_string()).collect())
+            .collect();
+        result.rows = values;
+        result
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SelectResult {
     pub columns: Vec<String>,
     pub rows: Vec<Vec<Value>>,
@@ -276,6 +352,12 @@ impl SelectResult {
             columns: Vec::new(),
             rows: Vec::new(),
         }
+    }
+
+    pub fn to_response_data(self) -> HashMap<String, Vec<String>> {
+        let mut result = HashMap::new();
+
+        result
     }
 }
 // Represent a row in a table

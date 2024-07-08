@@ -1,7 +1,9 @@
 mod storage;
 mod test;
 
-use crate::storage::Database;
+use crate::storage::{Database, QueryResult, SelectResultResponse};
+use serde_json::json;
+use std::fmt::format;
 use std::sync::{Arc, RwLock};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -45,9 +47,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                     // Execute query
                     let result = db_guard.execute(&query);
+                    match result {
+                        Ok(q) => match q {
+                            QueryResult::Success(s) => format!("Received query: {:?}\n", s),
 
+                            QueryResult::Rows(r) => {
+                                let r: SelectResultResponse = r.into();
+                                format!("Response from query: {}\n", json!(r).to_string())
+                            }
+                        },
+                        Err(e) => {
+                            format!("Query failed with error: {:?}\n", e)
+                        }
+                    }
                     // Prepare response
-                    format!("Received query: {:?}\n", result)
+                    //format!("Received query: {:?}\n", result)
                     // Lock is released here when db_guard goes out of scope
                 };
 
