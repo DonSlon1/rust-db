@@ -1,8 +1,6 @@
 #[cfg(test)]
 mod tests {
     use crate::storage::*;
-    use sqlparser::ast::{ColumnDef, DataType as SqlDataType};
-    use std::error::Error;
 
     #[test]
     fn test_database_creation() {
@@ -20,7 +18,7 @@ mod tests {
 
         // Verify the table exists by trying to create it again
         let duplicate_result = db.execute("CREATE TABLE users (id INT, name STRING)");
-        assert!(matches!(duplicate_result.unwrap(), QueryResult::Fail(_)));
+        assert!(matches!(duplicate_result, Err(..)));
     }
 
     #[test]
@@ -29,8 +27,7 @@ mod tests {
         db.execute("CREATE TABLE users (id INT)").unwrap();
         let result = db.execute("CREATE TABLE users (id INT)");
 
-        assert!(result.is_ok());
-        assert!(matches!(result.unwrap(), QueryResult::Fail(_)));
+        assert!(matches!(result, Err(..)));
     }
 
     #[test]
@@ -44,7 +41,7 @@ mod tests {
 
         // Verify the table no longer exists by trying to drop it again
         let second_drop = db.execute("DROP TABLE users");
-        assert!(matches!(second_drop.unwrap(), QueryResult::Fail(_)));
+        assert!(matches!(second_drop, Err(..)));
     }
 
     #[test]
@@ -52,8 +49,7 @@ mod tests {
         let mut db = Database::new();
         let result = db.execute("DROP TABLE users");
 
-        assert!(result.is_ok());
-        assert!(matches!(result.unwrap(), QueryResult::Fail(_)));
+        assert!(matches!(result, Err(..)));
     }
 
     #[test]
@@ -70,8 +66,7 @@ mod tests {
         let mut db = Database::new();
         let result = db.execute("INVALID SQL");
 
-        assert!(result.is_ok());
-        assert!(matches!(result.unwrap(), QueryResult::Fail(_)));
+        assert!(matches!(result, Err(..)));
     }
 
     #[test]
@@ -172,8 +167,9 @@ mod tests {
 
         let result = db.execute("SELECT name, age FROM users");
         assert!(result.is_ok());
-        if let QueryResult::Success(data) = result.unwrap() {
-            assert_eq!(data.len(), 1);
+        if let QueryResult::Rows(data) = result.unwrap() {
+            assert_eq!(data.columns.len(), 2);
+            assert_eq!(data.rows.len(), 1);
         } else {
             panic!("Expected Success QueryResult");
         }
@@ -205,8 +201,8 @@ mod tests {
 
         let result = db.execute("SELECT * FROM empty_table");
         assert!(result.is_ok());
-        if let QueryResult::Success(data) = result.unwrap() {
-            assert_eq!(data.len(), 0);
+        if let QueryResult::Rows(data) = result.unwrap() {
+            assert_eq!(data.rows.len(), 0);
         } else {
             panic!("Expected Success QueryResult");
         }
@@ -258,8 +254,8 @@ mod tests {
 
         let result = db.execute("SELECT * FROM users LIMIT 2");
         assert!(result.is_ok());
-        if let QueryResult::Success(data) = result.unwrap() {
-            assert_eq!(data.len(), 2);
+        if let QueryResult::Rows(data) = result.unwrap() {
+            assert_eq!(data.rows.len(), 2);
         } else {
             panic!("Expected Success QueryResult");
         }

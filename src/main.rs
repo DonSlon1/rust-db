@@ -1,7 +1,7 @@
 mod storage;
 mod test;
 
-use crate::storage::{Database, DbResult, QueryResult};
+use crate::storage::Database;
 use std::sync::{Arc, RwLock};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -44,10 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     };
 
                     // Execute query
-                    let result = db_guard.execute(&query).unwrap_or_else(|e| {
-                        println!("{}", e);
-                        QueryResult::Fail(format!("Query faild: {}", e))
-                    });
+                    let result = db_guard.execute(&query);
 
                     // Prepare response
                     format!("Received query: {:?}\n", result)

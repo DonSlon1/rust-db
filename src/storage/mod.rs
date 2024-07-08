@@ -1,10 +1,8 @@
 use sqlparser::ast::SetExpr::Values;
 use sqlparser::ast::{
-    ColumnDef, DataType, Expr, Ident, IndexType, ObjectName, ObjectType, Query, SelectItem,
-    SetExpr, Statement, TableFactor, Value, Values as Val,
+    ColumnDef, DataType, Expr, ObjectName, ObjectType, Query, SelectItem, SetExpr, Statement,
+    TableFactor, Value, Values as Val,
 };
-use sqlparser::parser::ParserError;
-use sqlparser::test_utils::table;
 use std::collections::HashMap;
 use std::error::Error;
 
@@ -34,7 +32,7 @@ impl Database {
             Ok(ast) => self.execute_statement(&ast[0]),
             Err(e) => {
                 println!("{}", e);
-                return Ok(QueryResult::Fail(format!("{}", e)));
+                return Err(format!("{}", e).into());
             }
         }
 
@@ -83,39 +81,64 @@ impl Database {
 
         let table = self.tables.get(&table_name).ok_or("Table not found")?;
 
-        // Determine which columns to select
-        let select_columns = match &*query.body {
-            SetExpr::Select(select) => select
-                .projection
-                .iter()
-                .map(|item| match item {
-                    SelectItem::Wildcard(..) => Ok(table
+        let select_columns: Vec<String> = match &*query.body {
+            SetExpr::Select(select) => {
+                if select
+                    .projection
+                    .iter()
+                    .any(|item| matches!(item, SelectItem::Wildcard(..)))
+                {
+                    table
                         .columns
                         .iter()
                         .map(|v| v.name.to_string().clone())
-                        .collect()),
-                    SelectItem::UnnamedExpr(Expr::Identifier(ident)) => Ok(ident.value.clone()),
-                    SelectItem::ExprWithAlias {
-                        expr: Expr::Identifier(ident),
-                        ..
-                    } => Ok(ident.value.clone()),
-                    _ => Err("Unsupported select item".into()),
-                })
-                .collect::<Result<Vec<String>, Box<dyn Error>>>()?,
+                        .collect()
+                } else {
+                    select
+                        .projection
+                        .iter()
+                        .map(|item| match item {
+                            SelectItem::UnnamedExpr(Expr::Identifier(ident)) => {
+                                Ok(ident.value.clone())
+                            }
+                            SelectItem::ExprWithAlias {
+                                expr: Expr::Identifier(ident),
+                                ..
+                            } => Ok(ident.value.clone()),
+                            _ => Err("Unsupported select item".into()),
+                        })
+                        .collect::<Result<Vec<String>, Box<dyn Error>>>()?
+                }
+            }
             _ => return Err("Unsupported query type".into()),
         };
 
-        let mut response = SelectResult::new();
-        response.rows = table
+        let column_indices: Vec<usize> = select_columns
+            .iter()
+            .map(|col_name| {
+                table
+                    .columns
+                    .iter()
+                    .position(|c| c.name.to_string().eq(col_name))
+                    .ok_or_else(|| format!("Column '{}' not found", col_name))
+            })
+            .collect::<Result<Vec<usize>, String>>()?;
+
+        // Select specified columns
+        let result_rows = table
             .rows
-            .iter()
-            .map(|v| v.data.iter().map(|b| b.to_string()).collect())
+            .clone()
+            .into_iter()
+            .map(|row| {
+                column_indices
+                    .iter()
+                    .map(|&i| row.data[i].clone())
+                    .collect()
+            })
             .collect();
-        response.columns = table
-            .columns
-            .iter()
-            .map(|v| v.name.to_string().clone())
-            .collect();
+        let mut response = SelectResult::new();
+        response.rows = result_rows;
+        response.columns = select_columns;
         Ok(QueryResult::Rows(response))
     }
     // Optional: Add methods for specific operations if you want a programmatic interface
@@ -125,7 +148,7 @@ impl Database {
         columns: &Vec<ColumnDef>,
     ) -> DbResult<QueryResult> {
         if self.tables.contains_key(&name) {
-            return Ok(QueryResult::Fail("Table allergy exist".to_string()));
+            return Err(format!("Table {} alerady exist", name).into());
         }
         let mut table = Table::new(name.clone());
         table.columns = columns.clone();
@@ -137,7 +160,7 @@ impl Database {
 
     pub fn drop_table(&mut self, name: String, if_exist: bool) -> DbResult<QueryResult> {
         if !self.tables.contains_key(&name) && !if_exist {
-            return Ok(QueryResult::Fail("Table dos not exist".to_string()));
+            return Err(format!("Table {} dos not exist", name).into());
         }
 
         self.tables.remove(&name);
@@ -239,13 +262,12 @@ impl Table {
 pub enum QueryResult {
     Success(String),
     Rows(SelectResult),
-    Fail(String), // Add more variants as needed
 }
 
 #[derive(Debug, Clone)]
 pub struct SelectResult {
-    columns: Vec<String>,
-    rows: Vec<Vec<String>>,
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<Value>>,
 }
 
 impl SelectResult {
@@ -266,23 +288,4 @@ impl Row {
     pub fn new(data: Vec<Value>) -> Self {
         Row { data }
     }
-}
-
-// Represent a value
-#[derive(Debug, Clone)]
-pub enum Valuess {
-    Integer(i64),
-    Float(f64),
-    String(String),
-    Boolean(bool),
-    Null,
-    // Add more types as needed
-}
-
-// Represent a condition for SELECT statements
-pub enum Condition {
-    Equals(String, Valuess),
-    GreaterThan(String, Valuess),
-    LessThan(String, Valuess),
-    // Add more conditions as needed
 }
