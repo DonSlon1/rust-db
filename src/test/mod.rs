@@ -522,20 +522,41 @@ mod tests {
         let result = db.execute("SELECT * FROM fruits WHERE name BETWEEN 'B' AND 'D'");
         assert!(result.is_ok());
         if let QueryResult::Rows(data) = result.unwrap() {
-            assert_eq!(data.rows.len(), 3);
+            assert_eq!(data.rows.len(), 2);
             let names: Vec<String> = data
                 .rows
                 .iter()
-                .map(|row| match row.get(2).unwrap() {
+                .map(|row| match row.get(1).unwrap() {
                     Value::SingleQuotedString(s) => s.clone(),
                     _ => panic!("Expected string value"),
                 })
                 .collect();
             assert!(names.contains(&"Banana".to_string()));
             assert!(names.contains(&"Cherry".to_string()));
-            assert!(names.contains(&"Date".to_string()));
+            assert!(!names.contains(&"Date".to_string()));
             assert!(!names.contains(&"Apple".to_string()));
             assert!(!names.contains(&"Elderberry".to_string()));
+        } else {
+            panic!("Expected Select QueryResult");
+        }
+
+        let result = db.execute("SELECT * FROM fruits WHERE name NOT BETWEEN 'B' AND 'D'");
+        assert!(result.is_ok());
+        if let QueryResult::Rows(data) = result.unwrap() {
+            assert_eq!(data.rows.len(), 3);
+            let names: Vec<String> = data
+                .rows
+                .iter()
+                .map(|row| match row.get(1).unwrap() {
+                    Value::SingleQuotedString(s) => s.clone(),
+                    _ => panic!("Expected string value"),
+                })
+                .collect();
+            assert!(!names.contains(&"Banana".to_string()));
+            assert!(!names.contains(&"Cherry".to_string()));
+            assert!(names.contains(&"Date".to_string()));
+            assert!(names.contains(&"Apple".to_string()));
+            assert!(names.contains(&"Elderberry".to_string()));
         } else {
             panic!("Expected Select QueryResult");
         }
@@ -562,7 +583,7 @@ mod tests {
             let words: Vec<String> = data
                 .rows
                 .iter()
-                .map(|row| match row.get(2).unwrap() {
+                .map(|row| match row.get(1).unwrap() {
                     Value::SingleQuotedString(s) => s.clone(),
                     _ => panic!("Expected string value"),
                 })
@@ -571,6 +592,26 @@ mod tests {
             assert!(words.contains(&"Date".to_string()));
             assert!(!words.contains(&"apple".to_string()));
             assert!(!words.contains(&"cherry".to_string()));
+        } else {
+            panic!("Expected Select QueryResult");
+        }
+
+        let result = db.execute("SELECT * FROM words WHERE word NOT BETWEEN 'A' AND 'Z'");
+        assert!(result.is_ok());
+        if let QueryResult::Rows(data) = result.unwrap() {
+            assert_eq!(data.rows.len(), 2);
+            let words: Vec<String> = data
+                .rows
+                .iter()
+                .map(|row| match row.get(1).unwrap() {
+                    Value::SingleQuotedString(s) => s.clone(),
+                    _ => panic!("Expected string value"),
+                })
+                .collect();
+            assert!(!words.contains(&"Banana".to_string()));
+            assert!(!words.contains(&"Date".to_string()));
+            assert!(words.contains(&"apple".to_string()));
+            assert!(words.contains(&"cherry".to_string()));
         } else {
             panic!("Expected Select QueryResult");
         }

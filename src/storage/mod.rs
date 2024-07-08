@@ -298,18 +298,13 @@ impl Database {
                 let value = self.evaluate_expr(expr, row, columns);
                 let low = self.evaluate_expr(low, row, columns);
                 let high = self.evaluate_expr(high, row, columns);
-                if value >= low && high >= value {
-                    if !negated {
-                        true
-                    } else {
-                        false
-                    }
+                let result = Self::compare_values(value.clone(), low) != Some(Ordering::Less)
+                    && Self::compare_values(value, high) != Some(Ordering::Greater);
+
+                if *negated {
+                    !result
                 } else {
-                    if !negated {
-                        false
-                    } else {
-                        true
-                    }
+                    result
                 }
             }
             Expr::Like { .. } => false,
