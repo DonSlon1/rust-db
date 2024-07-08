@@ -187,8 +187,8 @@ mod tests {
 
         let result = db.execute("SELECT * FROM users WHERE age > 25");
         assert!(result.is_ok());
-        if let QueryResult::Success(data) = result.unwrap() {
-            assert_eq!(data.len(), 1);
+        if let QueryResult::Rows(data) = result.unwrap() {
+            assert_eq!(data.rows.len(), 1);
         } else {
             panic!("Expected Success QueryResult");
         }
@@ -238,6 +238,221 @@ mod tests {
 
         let result = db.execute("SELECT * FROM users ORDER BY id");
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_select_with_complex_where_clause() {
+        let mut db = Database::new();
+        db.execute("CREATE TABLE users (id INT, name STRING, age INT, city STRING)")
+            .unwrap();
+        db.execute("INSERT INTO users (id, name, age, city) VALUES (1, 'Alice', 30, 'New York')")
+            .unwrap();
+        db.execute("INSERT INTO users (id, name, age, city) VALUES (2, 'Bob', 25, 'Los Angeles')")
+            .unwrap();
+        db.execute("INSERT INTO users (id, name, age, city) VALUES (3, 'Charlie', 35, 'Chicago')")
+            .unwrap();
+
+        let result = db.execute("SELECT * FROM users WHERE age > 25 AND city = 'New York'");
+        assert!(result.is_ok());
+        if let QueryResult::Rows(data) = result.unwrap() {
+            assert_eq!(data.rows.len(), 1);
+        } else {
+            panic!("Expected Success QueryResult");
+        }
+    }
+
+    #[test]
+    fn test_select_with_or_condition() {
+        let mut db = Database::new();
+        db.execute("CREATE TABLE users (id INT, name STRING, age INT)")
+            .unwrap();
+        db.execute("INSERT INTO users (id, name, age) VALUES (1, 'Alice', 30)")
+            .unwrap();
+        db.execute("INSERT INTO users (id, name, age) VALUES (2, 'Bob', 25)")
+            .unwrap();
+        db.execute("INSERT INTO users (id, name, age) VALUES (3, 'Charlie', 35)")
+            .unwrap();
+
+        let result = db.execute("SELECT * FROM users WHERE age < 26 OR age > 34");
+        assert!(result.is_ok());
+        if let QueryResult::Rows(data) = result.unwrap() {
+            assert_eq!(data.rows.len(), 2);
+        } else {
+            panic!("Expected Success QueryResult");
+        }
+    }
+
+    #[test]
+    fn test_select_with_like_operator() {
+        let mut db = Database::new();
+        db.execute("CREATE TABLE users (id INT, name STRING)")
+            .unwrap();
+        db.execute("INSERT INTO users (id, name) VALUES (1, 'Alice')")
+            .unwrap();
+        db.execute("INSERT INTO users (id, name) VALUES (2, 'Bob')")
+            .unwrap();
+        db.execute("INSERT INTO users (id, name) VALUES (3, 'Charlie')")
+            .unwrap();
+
+        let result = db.execute("SELECT * FROM users WHERE name LIKE 'A%'");
+        assert!(result.is_ok());
+        if let QueryResult::Rows(data) = result.unwrap() {
+            assert_eq!(data.rows.len(), 1);
+        } else {
+            panic!("Expected Success QueryResult");
+        }
+    }
+
+    #[test]
+    fn test_select_with_in_operator() {
+        let mut db = Database::new();
+        db.execute("CREATE TABLE users (id INT, name STRING)")
+            .unwrap();
+        db.execute("INSERT INTO users (id, name) VALUES (1, 'Alice')")
+            .unwrap();
+        db.execute("INSERT INTO users (id, name) VALUES (2, 'Bob')")
+            .unwrap();
+        db.execute("INSERT INTO users (id, name) VALUES (3, 'Charlie')")
+            .unwrap();
+
+        let result = db.execute("SELECT * FROM users WHERE name IN ('Alice', 'Bob')");
+        assert!(result.is_ok());
+        if let QueryResult::Rows(data) = result.unwrap() {
+            assert_eq!(data.rows.len(), 2);
+        } else {
+            panic!("Expected Success QueryResult");
+        }
+    }
+
+    #[test]
+    fn test_select_with_between_operator() {
+        let mut db = Database::new();
+        db.execute("CREATE TABLE users (id INT, name STRING, age INT)")
+            .unwrap();
+        db.execute("INSERT INTO users (id, name, age) VALUES (1, 'Alice', 30)")
+            .unwrap();
+        db.execute("INSERT INTO users (id, name, age) VALUES (2, 'Bob', 25)")
+            .unwrap();
+        db.execute("INSERT INTO users (id, name, age) VALUES (3, 'Charlie', 35)")
+            .unwrap();
+
+        let result = db.execute("SELECT * FROM users WHERE age BETWEEN 25 AND 32");
+        assert!(result.is_ok());
+        if let QueryResult::Rows(data) = result.unwrap() {
+            assert_eq!(data.rows.len(), 2);
+        } else {
+            panic!("Expected Success QueryResult");
+        }
+    }
+
+    #[test]
+    fn test_select_with_is_null() {
+        let mut db = Database::new();
+        db.execute("CREATE TABLE users (id INT, name STRING, email STRING)")
+            .unwrap();
+        db.execute("INSERT INTO users (id, name, email) VALUES (1, 'Alice', 'alice@example.com')")
+            .unwrap();
+        db.execute("INSERT INTO users (id, name, email) VALUES (2, 'Bob', NULL)")
+            .unwrap();
+
+        let result = db.execute("SELECT * FROM users WHERE email IS NULL");
+        assert!(result.is_ok());
+        if let QueryResult::Rows(data) = result.unwrap() {
+            assert_eq!(data.rows.len(), 1);
+        } else {
+            panic!("Expected Success QueryResult");
+        }
+    }
+
+    #[test]
+    fn test_select_with_group_by() {
+        let mut db = Database::new();
+        db.execute("CREATE TABLE orders (id INT, customer STRING, amount INT)")
+            .unwrap();
+        db.execute("INSERT INTO orders (id, customer, amount) VALUES (1, 'Alice', 100)")
+            .unwrap();
+        db.execute("INSERT INTO orders (id, customer, amount) VALUES (2, 'Bob', 200)")
+            .unwrap();
+        db.execute("INSERT INTO orders (id, customer, amount) VALUES (3, 'Alice', 300)")
+            .unwrap();
+
+        let result = db.execute("SELECT customer, SUM(amount) FROM orders GROUP BY customer");
+        assert!(result.is_ok());
+        if let QueryResult::Rows(data) = result.unwrap() {
+            assert_eq!(data.rows.len(), 2);
+        } else {
+            panic!("Expected Success QueryResult");
+        }
+    }
+
+    #[test]
+    fn test_select_with_having() {
+        let mut db = Database::new();
+        db.execute("CREATE TABLE orders (id INT, customer STRING, amount INT)")
+            .unwrap();
+        db.execute("INSERT INTO orders (id, customer, amount) VALUES (1, 'Alice', 100)")
+            .unwrap();
+        db.execute("INSERT INTO orders (id, customer, amount) VALUES (2, 'Bob', 200)")
+            .unwrap();
+        db.execute("INSERT INTO orders (id, customer, amount) VALUES (3, 'Alice', 300)")
+            .unwrap();
+
+        let result = db.execute(
+            "SELECT customer, SUM(amount) FROM orders GROUP BY customer HAVING SUM(amount) > 300",
+        );
+        assert!(result.is_ok());
+        if let QueryResult::Rows(data) = result.unwrap() {
+            assert_eq!(data.rows.len(), 1);
+        } else {
+            panic!("Expected Success QueryResult");
+        }
+    }
+
+    #[test]
+    fn test_select_with_subquery() {
+        let mut db = Database::new();
+        db.execute("CREATE TABLE employees (id INT, name STRING, department STRING, salary INT)")
+            .unwrap();
+        db.execute("INSERT INTO employees (id, name, department, salary) VALUES (1, 'Alice', 'Sales', 50000)").unwrap();
+        db.execute(
+            "INSERT INTO employees (id, name, department, salary) VALUES (2, 'Bob', 'HR', 60000)",
+        )
+        .unwrap();
+        db.execute("INSERT INTO employees (id, name, department, salary) VALUES (3, 'Charlie', 'Sales', 55000)").unwrap();
+
+        let result = db
+            .execute("SELECT * FROM employees WHERE salary > (SELECT AVG(salary) FROM employees)");
+        assert!(result.is_ok());
+        if let QueryResult::Rows(data) = result.unwrap() {
+            assert_eq!(data.rows.len(), 1);
+        } else {
+            panic!("Expected Success QueryResult");
+        }
+    }
+
+    #[test]
+    fn test_select_with_join() {
+        let mut db = Database::new();
+        db.execute("CREATE TABLE employees (id INT, name STRING, department_id INT)")
+            .unwrap();
+        db.execute("CREATE TABLE departments (id INT, name STRING)")
+            .unwrap();
+        db.execute("INSERT INTO employees (id, name, department_id) VALUES (1, 'Alice', 1)")
+            .unwrap();
+        db.execute("INSERT INTO employees (id, name, department_id) VALUES (2, 'Bob', 2)")
+            .unwrap();
+        db.execute("INSERT INTO departments (id, name) VALUES (1, 'Sales')")
+            .unwrap();
+        db.execute("INSERT INTO departments (id, name) VALUES (2, 'HR')")
+            .unwrap();
+
+        let result = db.execute("SELECT employees.name, departments.name FROM employees JOIN departments ON employees.department_id = departments.id");
+        assert!(result.is_ok());
+        if let QueryResult::Rows(data) = result.unwrap() {
+            assert_eq!(data.rows.len(), 2);
+        } else {
+            panic!("Expected Success QueryResult");
+        }
     }
 
     #[test]

@@ -205,16 +205,103 @@ impl Database {
                 let left_value = self.evaluate_expr(left, row, columns);
                 let right_value = self.evaluate_expr(right, row, columns);
                 match op {
-                    BinaryOperator::Eq => left_value == right_value,
+                    BinaryOperator::Eq => {
+                        Self::compare_values(left_value, right_value) == Some(Ordering::Equal)
+                    }
+                    BinaryOperator::NotEq => {
+                        Self::compare_values(left_value, right_value) != Some(Ordering::Equal)
+                    }
+                    BinaryOperator::Gt => {
+                        Self::compare_values(left_value, right_value) == Some(Ordering::Greater)
+                    }
+                    BinaryOperator::Lt => {
+                        Self::compare_values(left_value, right_value) == Some(Ordering::Less)
+                    }
+                    BinaryOperator::GtEq => matches!(
+                        Self::compare_values(left_value, right_value),
+                        Some(Ordering::Greater | Ordering::Equal)
+                    ),
+                    BinaryOperator::LtEq => matches!(
+                        Self::compare_values(left_value, right_value),
+                        Some(Ordering::Less | Ordering::Equal)
+                    ),
+                    // Add more operators as needed
                     _ => false,
                 }
             }
-            _ => false,
+            Expr::Identifier(_) => false,
+            Expr::CompoundIdentifier(_) => false,
+            Expr::JsonAccess { .. } => false,
+            Expr::CompositeAccess { .. } => false,
+            Expr::IsFalse(_) => false,
+            Expr::IsNotFalse(_) => false,
+            Expr::IsTrue(_) => false,
+            Expr::IsNotTrue(_) => false,
+            Expr::IsNull(left) => {
+                matches!(self.evaluate_expr(left, row, columns), Value::Null)
+            }
+            Expr::IsNotNull(_) => false,
+            Expr::IsUnknown(_) => false,
+            Expr::IsNotUnknown(_) => false,
+            Expr::IsDistinctFrom(_, _) => false,
+            Expr::IsNotDistinctFrom(_, _) => false,
+            Expr::InList { .. } => false,
+            Expr::InSubquery { .. } => false,
+            Expr::InUnnest { .. } => false,
+            Expr::Between { .. } => false,
+            Expr::Like { .. } => false,
+            Expr::ILike { .. } => false,
+            Expr::SimilarTo { .. } => false,
+            Expr::AnyOp(_) => false,
+            Expr::AllOp(_) => false,
+            Expr::UnaryOp { .. } => false,
+            Expr::Cast { .. } => false,
+            Expr::TryCast { .. } => false,
+            Expr::SafeCast { .. } => false,
+            Expr::AtTimeZone { .. } => false,
+            Expr::Extract { .. } => false,
+            Expr::Ceil { .. } => false,
+            Expr::Floor { .. } => false,
+            Expr::Position { .. } => false,
+            Expr::Substring { .. } => false,
+            Expr::Trim { .. } => false,
+            Expr::Overlay { .. } => false,
+            Expr::Collate { .. } => false,
+            Expr::Nested(_) => false,
+            Expr::Value(_) => false,
+            Expr::IntroducedString { .. } => false,
+            Expr::TypedString { .. } => false,
+            Expr::MapAccess { .. } => false,
+            Expr::Function(_) => false,
+            Expr::AggregateExpressionWithFilter { .. } => false,
+            Expr::Case { .. } => false,
+            Expr::Exists { .. } => false,
+            Expr::Subquery(_) => false,
+            Expr::ArraySubquery(_) => false,
+            Expr::ListAgg(_) => false,
+            Expr::ArrayAgg(_) => false,
+            Expr::GroupingSets(_) => false,
+            Expr::Cube(_) => false,
+            Expr::Rollup(_) => false,
+            Expr::Tuple(_) => false,
+            Expr::ArrayIndex { .. } => false,
+            Expr::Array(_) => false,
+            Expr::Interval(_) => false,
+            Expr::MatchAgainst { .. } => false,
         }
     }
 
     fn compare_values(left: Value, right: Value) -> Option<Ordering> {
-        return Some(Ordering::Greater);
+        match (left, right) {
+            (Value::Number(a, _), Value::Number(b, _)) => {
+                a.parse::<f64>().ok()?.partial_cmp(&b.parse::<f64>().ok()?)
+            }
+            (Value::SingleQuotedString(a), Value::SingleQuotedString(b)) => Some(a.cmp(&b)),
+            (Value::DoubleQuotedString(a), Value::DoubleQuotedString(b)) => Some(a.cmp(&b)),
+            (Value::Boolean(a), Value::Boolean(b)) => Some(a.cmp(&b)),
+            // Add more comparisons as needed
+            _ => None, // Incomparable types
+        }
     }
 
     fn evaluate_expr(&self, expr: &Expr, row: &Row, columns: &Vec<ColumnDef>) -> Value {
