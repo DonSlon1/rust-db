@@ -5,7 +5,7 @@ use sqlparser::ast::{
     SetExpr, Statement, TableFactor, Value, Values as Val,
 };
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::ops::Index;
 
@@ -227,133 +227,78 @@ impl Database {
     }
 
     fn evaluate_condition(&self, condition: &Expr, row: &Row, columns: &Vec<ColumnDef>) -> bool {
-        match condition {
-            Expr::BinaryOp { left, right, op } => {
-                let left_value = self.evaluate_expr(left, row, columns);
-                let right_value = self.evaluate_expr(right, row, columns);
-                match op {
-                    BinaryOperator::Eq => {
-                        Self::compare_values(left_value, right_value) == Some(Ordering::Equal)
-                    }
-                    BinaryOperator::NotEq => {
-                        Self::compare_values(left_value, right_value) != Some(Ordering::Equal)
-                    }
-                    BinaryOperator::Gt => {
-                        Self::compare_values(left_value, right_value) == Some(Ordering::Greater)
-                    }
-                    BinaryOperator::Lt => {
-                        Self::compare_values(left_value, right_value) == Some(Ordering::Less)
-                    }
-                    BinaryOperator::GtEq => matches!(
-                        Self::compare_values(left_value, right_value),
-                        Some(Ordering::Greater | Ordering::Equal)
-                    ),
-                    BinaryOperator::LtEq => matches!(
-                        Self::compare_values(left_value, right_value),
-                        Some(Ordering::Less | Ordering::Equal)
-                    ),
+        let mut expr_stack = VecDeque::new();
+        expr_stack.push_back(condition.clone());
+
+        while let Some(current_expr) = expr_stack.pop_back() {
+            match current_expr.clone() {
+                Expr::BinaryOp { left, op, right } => match op {
                     BinaryOperator::Or => {
-                        self.evaluate_condition(left, row, columns)
-                            || self.evaluate_condition(right, row, columns)
+                        if self.evaluate_single_condition(&*left, row, columns) {
+                            return true;
+                        }
+                        expr_stack.push_back(*right.clone());
                     }
                     BinaryOperator::And => {
-                        self.evaluate_condition(left, row, columns)
-                            && self.evaluate_condition(right, row, columns)
+                        if !self.evaluate_single_condition(&*left, row, columns) {
+                            return false;
+                        }
+                        expr_stack.push_back(*right.clone());
                     }
-                    // Add more operators as needed
+                    _ => {
+                        return self.evaluate_single_condition(&current_expr, row, columns);
+                    }
+                },
+                Expr::Nested(expr) => {
+                    expr_stack.push_back(*expr.clone());
+                }
+                _ => {
+                    return self.evaluate_single_condition(&current_expr, row, columns);
+                }
+            }
+        }
+
+        false
+    }
+
+    fn evaluate_single_condition(
+        &self,
+        condition: &Expr,
+        row: &Row,
+        columns: &Vec<ColumnDef>,
+    ) -> bool {
+        match condition {
+            Expr::BinaryOp { left, op, right } => {
+                let left_val = self.evaluate_expr(left, row, columns);
+                let right_val = self.evaluate_expr(right, row, columns);
+                match op {
+                    BinaryOperator::Eq => left_val == right_val,
+                    BinaryOperator::NotEq => left_val != right_val,
+                    BinaryOperator::Lt => {
+                        Self::compare_values(left_val, right_val) == Some(Ordering::Less)
+                    }
+                    BinaryOperator::Gt => {
+                        Self::compare_values(left_val, right_val) == Some(Ordering::Greater)
+                    }
+                    BinaryOperator::LtEq => {
+                        Self::compare_values(left_val, right_val) != Some(Ordering::Greater)
+                    }
+                    BinaryOperator::GtEq => {
+                        Self::compare_values(left_val, right_val) != Some(Ordering::Less)
+                    }
+                    // Add other operators as needed
                     _ => false,
                 }
             }
-            Expr::Identifier(_) => false,
-            Expr::CompoundIdentifier(_) => false,
-            Expr::JsonAccess { .. } => false,
-            Expr::CompositeAccess { .. } => false,
-            Expr::IsFalse(_) => false,
-            Expr::IsNotFalse(_) => false,
-            Expr::IsTrue(_) => false,
-            Expr::IsNotTrue(_) => false,
-            Expr::IsNull(left) => {
-                matches!(self.evaluate_expr(left, row, columns), Value::Null)
+            Expr::Identifier(ident) => {
+                let value = self.evaluate_expr(condition, row, columns);
+                matches!(value, Value::Boolean(true))
             }
-            Expr::IsNotNull(left) => !matches!(self.evaluate_expr(left, row, columns), Value::Null),
-            Expr::IsUnknown(_) => false,
-            Expr::IsNotUnknown(_) => false,
-            Expr::IsDistinctFrom(_, _) => false,
-            Expr::IsNotDistinctFrom(_, _) => false,
-            Expr::InList {
-                expr,
-                list,
-                negated,
-            } => {
-                let value = self.evaluate_expr(expr, row, columns);
-                let resoult = list
-                    .iter()
-                    .any(|e| self.evaluate_expr(e, row, columns) == value);
-                if !negated {
-                    resoult
-                } else {
-                    !resoult
-                }
+            Expr::Value(value) => {
+                matches!(value, Value::Boolean(true))
             }
-            Expr::InSubquery { .. } => false,
-            Expr::InUnnest { .. } => false,
-            Expr::Between {
-                expr,
-                low,
-                high,
-                negated,
-            } => {
-                let value = self.evaluate_expr(expr, row, columns);
-                let low = self.evaluate_expr(low, row, columns);
-                let high = self.evaluate_expr(high, row, columns);
-                let result = Self::compare_values(value.clone(), low) != Some(Ordering::Less)
-                    && Self::compare_values(value, high) != Some(Ordering::Greater);
-
-                if *negated {
-                    !result
-                } else {
-                    result
-                }
-            }
-            Expr::Like { .. } => false,
-            Expr::ILike { .. } => false,
-            Expr::SimilarTo { .. } => false,
-            Expr::AnyOp(_) => false,
-            Expr::AllOp(_) => false,
-            Expr::UnaryOp { .. } => false,
-            Expr::Cast { .. } => false,
-            Expr::TryCast { .. } => false,
-            Expr::SafeCast { .. } => false,
-            Expr::AtTimeZone { .. } => false,
-            Expr::Extract { .. } => false,
-            Expr::Ceil { .. } => false,
-            Expr::Floor { .. } => false,
-            Expr::Position { .. } => false,
-            Expr::Substring { .. } => false,
-            Expr::Trim { .. } => false,
-            Expr::Overlay { .. } => false,
-            Expr::Collate { .. } => false,
-            Expr::Nested(_) => self.evaluate_condition(condition, row, columns),
-            Expr::Value(_) => false,
-            Expr::IntroducedString { .. } => false,
-            Expr::TypedString { .. } => false,
-            Expr::MapAccess { .. } => false,
-            Expr::Function(_) => false,
-            Expr::AggregateExpressionWithFilter { .. } => false,
-            Expr::Case { .. } => false,
-            Expr::Exists { .. } => false,
-            Expr::Subquery(_) => false,
-            Expr::ArraySubquery(_) => false,
-            Expr::ListAgg(_) => false,
-            Expr::ArrayAgg(_) => false,
-            Expr::GroupingSets(_) => false,
-            Expr::Cube(_) => false,
-            Expr::Rollup(_) => false,
-            Expr::Tuple(_) => false,
-            Expr::ArrayIndex { .. } => false,
-            Expr::Array(_) => false,
-            Expr::Interval(_) => false,
-            Expr::MatchAgainst { .. } => false,
+            // ... other expression types ...
+            _ => false,
         }
     }
 
@@ -508,7 +453,7 @@ impl SelectResult {
     }
 
     pub fn to_response_data(self) -> HashMap<String, Vec<String>> {
-        let mut result = HashMap::new();
+        let result = HashMap::new();
 
         result
     }
