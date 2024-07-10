@@ -333,7 +333,7 @@ impl Database {
             Expr::Trim { .. } => false,
             Expr::Overlay { .. } => false,
             Expr::Collate { .. } => false,
-            Expr::Nested(_) => self.evaluate_condition(condition, row, columns),
+            Expr::Nested(expr) => self.evaluate_condition(expr, row, columns),
             Expr::Value(_) => false,
             Expr::IntroducedString { .. } => false,
             Expr::TypedString { .. } => false,

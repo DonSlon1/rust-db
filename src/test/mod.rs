@@ -501,8 +501,9 @@ mod tests {
         )
         .unwrap();
 
-        let result =
-            db.execute("SELECT * FROM products WHERE (price < 0.5 AND id = 2) OR (price > 0.8)");
+        let result = db.execute(
+            "SELECT * FROM products WHERE (price < 0.5 AND category = 'Fruit') OR (price > 0.8)",
+        );
         assert!(result.is_ok());
         if let QueryResult::Rows(data) = result.unwrap() {
             assert_eq!(data.rows.len(), 2);
