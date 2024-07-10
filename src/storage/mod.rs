@@ -252,6 +252,14 @@ impl Database {
                         Self::compare_values(left_value, right_value),
                         Some(Ordering::Less | Ordering::Equal)
                     ),
+                    BinaryOperator::Or => {
+                        self.evaluate_condition(left, row, columns)
+                            || self.evaluate_condition(right, row, columns)
+                    }
+                    BinaryOperator::And => {
+                        self.evaluate_condition(left, row, columns)
+                            && self.evaluate_condition(right, row, columns)
+                    }
                     // Add more operators as needed
                     _ => false,
                 }
@@ -325,7 +333,7 @@ impl Database {
             Expr::Trim { .. } => false,
             Expr::Overlay { .. } => false,
             Expr::Collate { .. } => false,
-            Expr::Nested(_) => false,
+            Expr::Nested(_) => self.evaluate_condition(condition, row, columns),
             Expr::Value(_) => false,
             Expr::IntroducedString { .. } => false,
             Expr::TypedString { .. } => false,
@@ -430,10 +438,10 @@ impl Table {
     fn type_match(value: &Value, data_type: &DataType) -> bool {
         match (value, data_type) {
             // Number types
-            (Value::Number(_, false), DataType::Int(_)) => true,
-            (Value::Number(_, false), DataType::BigInt(_)) => true,
-            (Value::Number(_, true), DataType::Float(_)) => true,
-            (Value::Number(_, true), DataType::Double) => true,
+            (Value::Number(_, _), DataType::Int(_)) => true,
+            (Value::Number(_, _), DataType::BigInt(_)) => true,
+            (Value::Number(_, _), DataType::Float(_)) => true,
+            (Value::Number(_, _), DataType::Double) => true,
             (Value::Number(_, _), DataType::Decimal(_)) => true,
 
             // String types

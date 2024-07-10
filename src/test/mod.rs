@@ -483,6 +483,46 @@ mod tests {
     }
 
     #[test]
+    fn test_select_with_complex_condition() {
+        let mut db = Database::new();
+        db.execute("CREATE TABLE products (id INT, name STRING, price FLOAT, category STRING)")
+            .unwrap();
+        db.execute(
+            "INSERT INTO products (id, name, price, category) VALUES (1, 'Apple', 0.5, 'Fruit')",
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO products (id, name, price, category) VALUES (2, 'Banana', 0.3, 'Fruit')",
+        )
+        .unwrap();
+        db.execute("INSERT INTO products (id, name, price, category) VALUES (3, 'Carrot', 0.4, 'Vegetable')").unwrap();
+        db.execute(
+            "INSERT INTO products (id, name, price, category) VALUES (4, 'Date', 1.0, 'Fruit')",
+        )
+        .unwrap();
+
+        let result =
+            db.execute("SELECT * FROM products WHERE (price < 0.5 AND id = 2) OR (price > 0.8)");
+        assert!(result.is_ok());
+        if let QueryResult::Rows(data) = result.unwrap() {
+            assert_eq!(data.rows.len(), 2);
+            let names: Vec<String> = data
+                .rows
+                .iter()
+                .map(|row| match row.get(1).unwrap() {
+                    Value::SingleQuotedString(s) => s.clone(),
+                    _ => panic!("Expected string value"),
+                })
+                .collect();
+            assert!(names.contains(&"Banana".to_string()));
+            assert!(names.contains(&"Date".to_string()));
+            assert!(!names.contains(&"Apple".to_string()));
+            assert!(!names.contains(&"Carrot".to_string()));
+        } else {
+            panic!("Expected Select QueryResult");
+        }
+    }
+    #[test]
     fn test_select_with_limit() {
         let mut db = Database::new();
         db.execute("CREATE TABLE users (id INT, name STRING)")
