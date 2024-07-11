@@ -155,6 +155,8 @@ mod tests {
             .unwrap();
 
         let result = db.execute("SELECT * FROM users");
+        println!("e: {:?}", result);
+
         assert!(result.is_ok());
     }
 
@@ -404,6 +406,7 @@ mod tests {
             .unwrap();
 
         let result = db.execute("SELECT customer, SUM(amount) FROM orders GROUP BY customer");
+        println!("error: {:?}", result);
         assert!(result.is_ok());
         if let QueryResult::Rows(data) = result.unwrap() {
             assert_eq!(data.rows.len(), 2);
