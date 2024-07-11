@@ -88,20 +88,33 @@ impl Database {
 
         let table = self.tables.get(&table_name).ok_or("Table not found")?;
 
-        let select_columns: Vec<(String, Option<Function>)> = select_items
+        let select_columns: Vec<(String, Option<Function>)> = if select_items
             .iter()
-            .map(|item| match item {
-                SelectItem::UnnamedExpr(Expr::Identifier(ident)) => Ok((ident.value.clone(), None)),
-                SelectItem::UnnamedExpr(Expr::Function(func)) => {
-                    Ok((func.name.to_string(), Some(func.clone())))
-                }
-                SelectItem::ExprWithAlias {
-                    expr: Expr::Function(func),
-                    alias,
-                } => Ok((alias.value.clone(), Some(func.clone()))),
-                _ => Err("Unsupported select item".into()),
-            })
-            .collect::<Result<Vec<_>, Box<dyn Error>>>()?;
+            .any(|item| matches!(item, SelectItem::Wildcard(..)))
+        {
+            table
+                .columns
+                .iter()
+                .map(|v| Ok((v.name.to_string().clone(), None)))
+                .collect::<Result<Vec<_>, Box<dyn Error>>>()?
+        } else {
+            select_items
+                .iter()
+                .map(|item| match item {
+                    SelectItem::UnnamedExpr(Expr::Identifier(ident)) => {
+                        Ok((ident.value.clone(), None))
+                    }
+                    SelectItem::UnnamedExpr(Expr::Function(func)) => {
+                        Ok((func.name.to_string(), Some(func.clone())))
+                    }
+                    SelectItem::ExprWithAlias {
+                        expr: Expr::Function(func),
+                        alias,
+                    } => Ok((alias.value.clone(), Some(func.clone()))),
+                    _ => Err("Unsupported select item".into()),
+                })
+                .collect::<Result<Vec<_>, Box<dyn Error>>>()?
+        };
 
         let filtered_rows = match &*query.body {
             SetExpr::Select(select) => {
@@ -119,7 +132,7 @@ impl Database {
             _ => return Err("Unsupported query type".into()),
         };
 
-        let result_rows = if !group_by.is_empty() {
+        let mut result_rows = if !group_by.is_empty() {
             self.group_and_aggregate(&filtered_rows, &select_columns, &group_by, &table.columns)?
         } else {
             filtered_rows
@@ -145,6 +158,16 @@ impl Database {
                 })
                 .collect()
         };
+
+        if let Some(offset) = &query.offset {
+            let offset_value = Self::evaluate_offset_expr(offset)?;
+            result_rows = result_rows.into_iter().skip(offset_value).collect();
+        }
+
+        if let Some(limit) = &query.limit {
+            let limit_value = Self::evaluate_limit_expr(limit)?;
+            result_rows.truncate(limit_value);
+        }
 
         let mut response = SelectResult::new();
         response.rows = result_rows;
@@ -195,6 +218,7 @@ impl Database {
 
         Ok(result)
     }
+
     fn evaluate_limit_expr(limit: &Expr) -> DbResult<usize> {
         match limit {
             Expr::Value(Value::Number(n, _)) => {
@@ -412,7 +436,7 @@ impl Database {
     fn evaluate_function(
         &self,
         func: &Function,
-        row: &Vec<Row>,
+        rows: &Vec<Row>,
         columns: &Vec<ColumnDef>,
     ) -> Value {
         match func.name.to_string().to_uppercase().as_str() {
@@ -420,7 +444,7 @@ impl Database {
                 if let Some(arg) = func.args.first() {
                     match arg {
                         FunctionArg::Unnamed(FunctionArgExpr::Expr(expr)) => {
-                            let sum: f64 = row
+                            let sum: f64 = rows
                                 .iter()
                                 .map(|row| match self.evaluate_expr(expr, row, columns) {
                                     Value::Number(n, _) => n.parse::<f64>().unwrap_or(0.0),

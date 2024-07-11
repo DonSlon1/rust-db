@@ -155,6 +155,8 @@ mod tests {
             .unwrap();
 
         let result = db.execute("SELECT * FROM users");
+        println!("e: {:?}", result);
+
         assert!(result.is_ok());
     }
 
