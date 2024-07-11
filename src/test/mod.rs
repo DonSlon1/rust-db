@@ -560,6 +560,98 @@ mod tests {
     }
 
     #[test]
+    fn test_select_with_multiple_having_conditions() {
+        let mut db = Database::new();
+        db.execute("CREATE TABLE sales (id INT, product STRING, category STRING, amount INT)")
+            .unwrap();
+
+        // Insert sample data
+        db.execute(
+            "INSERT INTO sales (id, product, category, amount) VALUES (1, 'Apple', 'Fruit', 100)",
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO sales (id, product, category, amount) VALUES (2, 'Banana', 'Fruit', 150)",
+        )
+        .unwrap();
+        db.execute("INSERT INTO sales (id, product, category, amount) VALUES (3, 'Carrot', 'Vegetable', 80)").unwrap();
+        db.execute(
+            "INSERT INTO sales (id, product, category, amount) VALUES (4, 'Date', 'Fruit', 120)",
+        )
+        .unwrap();
+        db.execute("INSERT INTO sales (id, product, category, amount) VALUES (5, 'Eggplant', 'Vegetable', 90)").unwrap();
+        db.execute(
+            "INSERT INTO sales (id, product, category, amount) VALUES (6, 'Fig', 'Fruit', 200)",
+        )
+        .unwrap();
+
+        // Test query with multiple HAVING conditions using AND
+        let result = db.execute(
+            "SELECT category, SUM(amount) as total_sales \
+         FROM sales \
+         GROUP BY category \
+         HAVING SUM(amount) > 300 AND SUM(amount) < 600",
+        );
+
+        assert!(result.is_ok());
+        if let QueryResult::Rows(data) = result.unwrap() {
+            println!("Actual result: {:?}", data);
+            assert_eq!(
+                data.rows.len(),
+                1,
+                "Expected 1 row, but got {}",
+                data.rows.len()
+            );
+            assert_eq!(
+                data.columns,
+                vec!["category".to_string(), "SUM(amount)".to_string()]
+            );
+
+            // Check the result row
+            if !data.rows.is_empty() {
+                let row = &data.rows[0];
+                assert_eq!(row[0], Value::SingleQuotedString("Fruit".to_string()));
+                assert_eq!(row[1], Value::Number("570".to_string(), false)); // Total sales for Fruit
+            }
+        } else {
+            panic!("Expected Rows QueryResult");
+        }
+
+        // Test query with OR condition in HAVING
+        let result = db.execute(
+            "SELECT category, SUM(amount) as total_sales \
+         FROM sales \
+         GROUP BY category \
+         HAVING SUM(amount) > 500 OR SUM(amount) < 200",
+        );
+
+        assert!(result.is_ok());
+        if let QueryResult::Rows(data) = result.unwrap() {
+            assert_eq!(data.rows.len(), 2);
+            assert_eq!(
+                data.columns,
+                vec!["category".to_string(), "SUM(amount)".to_string()]
+            );
+
+            // Sort the results for consistent ordering
+            let mut rows = data.rows;
+            rows.sort_by(|a, b| a[0].to_string().cmp(&b[0].to_string()));
+
+            // Check the result rows
+            assert_eq!(rows[0][0], Value::SingleQuotedString("Fruit".to_string()));
+            assert_eq!(rows[0][1], Value::Number("570".to_string(), false));
+
+            assert_eq!(
+                rows[1][0],
+                Value::SingleQuotedString("Vegetable".to_string())
+            );
+            assert_eq!(rows[1][1], Value::Number("170".to_string(), false));
+        } else {
+            panic!("Expected Rows QueryResult");
+        }
+    }
+
+    #[test]
     fn test_select_with_string_between() {
         let mut db = Database::new();
         db.execute("CREATE TABLE fruits (id INT, name STRING)")

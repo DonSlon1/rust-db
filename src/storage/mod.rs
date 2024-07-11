@@ -273,33 +273,45 @@ impl Database {
     ) -> bool {
         match condition {
             Expr::BinaryOp { left, op, right } => {
-                let left_value = self.evaluate_having_expr(left, row, select_columns);
-                let right_value = self.evaluate_having_expr(right, row, select_columns);
+                let left_result = self.evaluate_having_condition(left, row, select_columns);
+                let right_result = self.evaluate_having_condition(right, row, select_columns);
                 match op {
-                    BinaryOperator::Gt => {
-                        Self::compare_values(left_value, right_value) == Some(Ordering::Greater)
+                    BinaryOperator::And => left_result && right_result,
+                    BinaryOperator::Or => left_result || right_result,
+                    _ => {
+                        let left_value = self.evaluate_having_expr(left, row, select_columns);
+                        let right_value = self.evaluate_having_expr(right, row, select_columns);
+                        match op {
+                            BinaryOperator::Gt => {
+                                Self::compare_values(left_value, right_value)
+                                    == Some(Ordering::Greater)
+                            }
+                            BinaryOperator::Lt => {
+                                Self::compare_values(left_value, right_value)
+                                    == Some(Ordering::Less)
+                            }
+                            BinaryOperator::GtEq => matches!(
+                                Self::compare_values(left_value, right_value),
+                                Some(Ordering::Greater | Ordering::Equal)
+                            ),
+                            BinaryOperator::LtEq => matches!(
+                                Self::compare_values(left_value, right_value),
+                                Some(Ordering::Less | Ordering::Equal)
+                            ),
+                            BinaryOperator::Eq => {
+                                Self::compare_values(left_value, right_value)
+                                    == Some(Ordering::Equal)
+                            }
+                            BinaryOperator::NotEq => {
+                                Self::compare_values(left_value, right_value)
+                                    != Some(Ordering::Equal)
+                            }
+                            _ => false,
+                        }
                     }
-                    BinaryOperator::Lt => {
-                        Self::compare_values(left_value, right_value) == Some(Ordering::Less)
-                    }
-                    BinaryOperator::GtEq => matches!(
-                        Self::compare_values(left_value, right_value),
-                        Some(Ordering::Greater | Ordering::Equal)
-                    ),
-                    BinaryOperator::LtEq => matches!(
-                        Self::compare_values(left_value, right_value),
-                        Some(Ordering::Less | Ordering::Equal)
-                    ),
-                    BinaryOperator::Eq => {
-                        Self::compare_values(left_value, right_value) == Some(Ordering::Equal)
-                    }
-                    BinaryOperator::NotEq => {
-                        Self::compare_values(left_value, right_value) != Some(Ordering::Equal)
-                    }
-                    _ => false,
                 }
             }
-            _ => false,
+            _ => self.evaluate_having_expr(condition, row, select_columns) == Value::Boolean(true),
         }
     }
 
