@@ -1,13 +1,12 @@
 use serde::{Deserialize, Serialize};
 use sqlparser::ast::SetExpr::Values;
 use sqlparser::ast::{
-    BinaryOperator, ColumnDef, DataType, Expr, ObjectName, ObjectType, Offset, Query, SelectItem,
-    SetExpr, Statement, TableFactor, Value, Values as Val,
+    BinaryOperator, ColumnDef, DataType, Expr, Function, FunctionArg, FunctionArgExpr, ObjectName,
+    ObjectType, Offset, Query, SelectItem, SetExpr, Statement, TableFactor, Value, Values as Val,
 };
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::error::Error;
-use std::ops::Index;
 
 // Main database struct
 #[derive(Clone)]
@@ -68,66 +67,43 @@ impl Database {
     }
 
     pub fn select(&mut self, query: Query) -> DbResult<QueryResult> {
-        let table_name = match &*query.body {
+        let (table_name, select_items, group_by) = match &*query.body {
             SetExpr::Select(select) => {
-                if let Some(table_with_join) = select.from.first() {
+                let table_name = if let Some(table_with_join) = select.from.first() {
                     match &table_with_join.relation {
                         TableFactor::Table { name, .. } => name.to_string(),
                         _ => return Err("Unsupported FROM clause".into()),
                     }
                 } else {
                     return Err("No table specified in FROM clause".into());
-                }
+                };
+                (
+                    table_name,
+                    select.projection.clone(),
+                    select.group_by.clone(),
+                )
             }
             _ => return Err("Unsupported query type".into()),
         };
 
         let table = self.tables.get(&table_name).ok_or("Table not found")?;
 
-        let select_columns: Vec<String> = match &*query.body {
-            SetExpr::Select(select) => {
-                if select
-                    .projection
-                    .iter()
-                    .any(|item| matches!(item, SelectItem::Wildcard(..)))
-                {
-                    table
-                        .columns
-                        .iter()
-                        .map(|v| v.name.to_string().clone())
-                        .collect()
-                } else {
-                    select
-                        .projection
-                        .iter()
-                        .map(|item| match item {
-                            SelectItem::UnnamedExpr(Expr::Identifier(ident)) => {
-                                Ok(ident.value.clone())
-                            }
-                            SelectItem::ExprWithAlias {
-                                expr: Expr::Identifier(ident),
-                                ..
-                            } => Ok(ident.value.clone()),
-                            _ => Err("Unsupported select item".into()),
-                        })
-                        .collect::<Result<Vec<String>, Box<dyn Error>>>()?
-                }
-            }
-            _ => return Err("Unsupported query type".into()),
-        };
-
-        let column_indices: Vec<usize> = select_columns
+        let select_columns: Vec<(String, Option<Function>)> = select_items
             .iter()
-            .map(|col_name| {
-                table
-                    .columns
-                    .iter()
-                    .position(|c| c.name.to_string().eq(col_name))
-                    .ok_or_else(|| format!("Column '{}' not found", col_name))
+            .map(|item| match item {
+                SelectItem::UnnamedExpr(Expr::Identifier(ident)) => Ok((ident.value.clone(), None)),
+                SelectItem::UnnamedExpr(Expr::Function(func)) => {
+                    Ok((func.name.to_string(), Some(func.clone())))
+                }
+                SelectItem::ExprWithAlias {
+                    expr: Expr::Function(func),
+                    alias,
+                } => Ok((alias.value.clone(), Some(func.clone()))),
+                _ => Err("Unsupported select item".into()),
             })
-            .collect::<Result<Vec<usize>, String>>()?;
+            .collect::<Result<Vec<_>, Box<dyn Error>>>()?;
 
-        let mut filtered_rows = match &*query.body {
+        let filtered_rows = match &*query.body {
             SetExpr::Select(select) => {
                 if let Some(selection) = &select.selection {
                     table
@@ -143,31 +119,81 @@ impl Database {
             _ => return Err("Unsupported query type".into()),
         };
 
-        if let Some(offset) = &query.offset {
-            let offset_value = Self::evaluate_offset_expr(offset)?;
-            filtered_rows = filtered_rows.into_iter().skip(offset_value).collect();
+        let result_rows = if !group_by.is_empty() {
+            self.group_and_aggregate(&filtered_rows, &select_columns, &group_by, &table.columns)?
+        } else {
+            filtered_rows
+                .into_iter()
+                .map(|row| {
+                    select_columns
+                        .iter()
+                        .map(|(col, func)| {
+                            if let Some(f) = func {
+                                let mut rs = Vec::new();
+                                rs.push(row.clone());
+                                self.evaluate_function(f, &rs, &table.columns)
+                            } else {
+                                let index = table
+                                    .columns
+                                    .iter()
+                                    .position(|c| c.name.value == *col)
+                                    .unwrap();
+                                row.data[index].clone()
+                            }
+                        })
+                        .collect()
+                })
+                .collect()
+        };
+
+        let mut response = SelectResult::new();
+        response.rows = result_rows;
+        response.columns = select_columns.into_iter().map(|(col, _)| col).collect();
+        Ok(QueryResult::Rows(response))
+    }
+
+    fn group_and_aggregate(
+        &self,
+        rows: &Vec<Row>,
+        select_columns: &[(String, Option<Function>)],
+        group_by: &[Expr],
+        table_columns: &Vec<ColumnDef>,
+    ) -> DbResult<Vec<Vec<Value>>> {
+        let mut grouped_data: HashMap<Vec<Value>, Vec<Row>> = HashMap::new();
+
+        for row in rows {
+            let group_key: Vec<Value> = group_by
+                .iter()
+                .map(|expr| self.evaluate_expr(expr, row, table_columns))
+                .collect();
+
+            grouped_data.entry(group_key).or_default().push(row.clone());
         }
 
-        if let Some(limit) = &query.limit {
-            let limit_value = Self::evaluate_limit_expr(limit)?;
-            filtered_rows.truncate(limit_value);
-        }
-
-        let result_rows = filtered_rows
-            .clone()
+        let result: Vec<Vec<Value>> = grouped_data
             .into_iter()
-            .map(|row| {
-                column_indices
+            .map(|(key, group)| {
+                select_columns
                     .iter()
-                    .map(|&i| row.data[i].clone())
+                    .enumerate()
+                    .map(|(i, (col, func))| {
+                        if i < group_by.len() {
+                            key[i].clone()
+                        } else if let Some(f) = func {
+                            self.evaluate_function(f, &group, table_columns)
+                        } else {
+                            let index = table_columns
+                                .iter()
+                                .position(|c| c.name.value == *col)
+                                .unwrap();
+                            group[0].data[index].clone()
+                        }
+                    })
                     .collect()
             })
             .collect();
 
-        let mut response = SelectResult::new();
-        response.rows = result_rows;
-        response.columns = select_columns;
-        Ok(QueryResult::Rows(response))
+        Ok(result)
     }
     fn evaluate_limit_expr(limit: &Expr) -> DbResult<usize> {
         match limit {
@@ -379,9 +405,37 @@ impl Database {
                     .expect("Column not found");
                 row.data[col_index].clone()
             }
-            Expr::Value(v) => match v {
-                _ => v.clone(),
-            },
+            Expr::Value(v) => v.clone(),
+            _ => Value::Null,
+        }
+    }
+    fn evaluate_function(
+        &self,
+        func: &Function,
+        row: &Vec<Row>,
+        columns: &Vec<ColumnDef>,
+    ) -> Value {
+        match func.name.to_string().to_uppercase().as_str() {
+            "SUM" => {
+                if let Some(arg) = func.args.first() {
+                    match arg {
+                        FunctionArg::Unnamed(FunctionArgExpr::Expr(expr)) => {
+                            let sum: f64 = row
+                                .iter()
+                                .map(|row| match self.evaluate_expr(expr, row, columns) {
+                                    Value::Number(n, _) => n.parse::<f64>().unwrap_or(0.0),
+                                    _ => 0.0,
+                                })
+                                .sum();
+                            Value::Number(sum.to_string(), false)
+                        }
+                        _ => Value::Null,
+                    }
+                } else {
+                    Value::Null
+                }
+            }
+            // Add other function evaluations here
             _ => Value::Null,
         }
     }
@@ -508,7 +562,7 @@ impl SelectResult {
     }
 
     pub fn to_response_data(self) -> HashMap<String, Vec<String>> {
-        let mut result = HashMap::new();
+        let result = HashMap::new();
 
         result
     }
