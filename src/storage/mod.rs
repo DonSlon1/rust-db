@@ -102,6 +102,12 @@ impl Database {
                 .iter()
                 .map(|item| match item {
                     SelectItem::UnnamedExpr(Expr::Identifier(ident)) => {
+                        let value = ident.value.clone();
+                        table
+                            .columns
+                            .iter()
+                            .position(|c| c.name.to_string().eq(&value))
+                            .ok_or_else(|| format!("Column '{}' not found", value))?;
                         Ok((ident.value.clone(), None))
                     }
                     SelectItem::UnnamedExpr(Expr::Function(func)) => {

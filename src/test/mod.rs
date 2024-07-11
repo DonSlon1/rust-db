@@ -226,6 +226,7 @@ mod tests {
             .unwrap();
 
         let result = db.execute("SELECT nonexistent_column FROM users");
+        println!("not error:{:?}", result);
         assert!(result.is_err());
     }
 
