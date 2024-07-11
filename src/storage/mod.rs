@@ -67,7 +67,7 @@ impl Database {
     }
 
     pub fn select(&mut self, query: Query) -> DbResult<QueryResult> {
-        let (table_name, select_items, group_by) = match &*query.body {
+        let (table_name, select_items, group_by, having) = match &*query.body {
             SetExpr::Select(select) => {
                 let table_name = if let Some(table_with_join) = select.from.first() {
                     match &table_with_join.relation {
@@ -81,6 +81,7 @@ impl Database {
                     table_name,
                     select.projection.clone(),
                     select.group_by.clone(),
+                    select.having.clone(),
                 )
             }
             _ => return Err("Unsupported query type".into()),
@@ -139,7 +140,13 @@ impl Database {
         };
 
         let mut result_rows = if !group_by.is_empty() {
-            self.group_and_aggregate(&filtered_rows, &select_columns, &group_by, &table.columns)?
+            self.group_and_aggregate(
+                &filtered_rows,
+                &select_columns,
+                &group_by,
+                &having,
+                &table.columns,
+            )?
         } else {
             filtered_rows
                 .into_iter()
@@ -177,7 +184,28 @@ impl Database {
 
         let mut response = SelectResult::new();
         response.rows = result_rows;
-        response.columns = select_columns.into_iter().map(|(col, _)| col).collect();
+        response.columns = select_columns
+            .into_iter()
+            .map(|(col, func)| {
+                if let Some(f) = func {
+                    match &f.name {
+                        ObjectName(parts) => {
+                            let func_name = parts.last().unwrap().value.clone();
+                            if let Some(FunctionArg::Unnamed(FunctionArgExpr::Expr(
+                                Expr::Identifier(ident),
+                            ))) = f.args.first()
+                            {
+                                format!("{}({})", func_name, ident.value)
+                            } else {
+                                func_name
+                            }
+                        }
+                    }
+                } else {
+                    col
+                }
+            })
+            .collect();
         Ok(QueryResult::Rows(response))
     }
 
@@ -186,6 +214,7 @@ impl Database {
         rows: &Vec<Row>,
         select_columns: &[(String, Option<Function>)],
         group_by: &[Expr],
+        having: &Option<Expr>,
         table_columns: &Vec<ColumnDef>,
     ) -> DbResult<Vec<Vec<Value>>> {
         let mut grouped_data: HashMap<Vec<Value>, Vec<Row>> = HashMap::new();
@@ -201,8 +230,8 @@ impl Database {
 
         let result: Vec<Vec<Value>> = grouped_data
             .into_iter()
-            .map(|(key, group)| {
-                select_columns
+            .filter_map(|(key, group)| {
+                let aggregated_row: Vec<Value> = select_columns
                     .iter()
                     .enumerate()
                     .map(|(i, (col, func))| {
@@ -218,11 +247,79 @@ impl Database {
                             group[0].data[index].clone()
                         }
                     })
-                    .collect()
+                    .collect();
+
+                // Apply HAVING condition
+                if let Some(having_expr) = having {
+                    if self.evaluate_having_condition(having_expr, &aggregated_row, select_columns)
+                    {
+                        Some(aggregated_row)
+                    } else {
+                        None
+                    }
+                } else {
+                    Some(aggregated_row)
+                }
             })
             .collect();
 
         Ok(result)
+    }
+    fn evaluate_having_condition(
+        &self,
+        condition: &Expr,
+        row: &Vec<Value>,
+        select_columns: &[(String, Option<Function>)],
+    ) -> bool {
+        match condition {
+            Expr::BinaryOp { left, op, right } => {
+                let left_value = self.evaluate_having_expr(left, row, select_columns);
+                let right_value = self.evaluate_having_expr(right, row, select_columns);
+                match op {
+                    BinaryOperator::Gt => {
+                        Self::compare_values(left_value, right_value) == Some(Ordering::Greater)
+                    }
+                    BinaryOperator::Lt => {
+                        Self::compare_values(left_value, right_value) == Some(Ordering::Less)
+                    }
+                    BinaryOperator::GtEq => matches!(
+                        Self::compare_values(left_value, right_value),
+                        Some(Ordering::Greater | Ordering::Equal)
+                    ),
+                    BinaryOperator::LtEq => matches!(
+                        Self::compare_values(left_value, right_value),
+                        Some(Ordering::Less | Ordering::Equal)
+                    ),
+                    BinaryOperator::Eq => {
+                        Self::compare_values(left_value, right_value) == Some(Ordering::Equal)
+                    }
+                    BinaryOperator::NotEq => {
+                        Self::compare_values(left_value, right_value) != Some(Ordering::Equal)
+                    }
+                    _ => false,
+                }
+            }
+            _ => false,
+        }
+    }
+
+    fn evaluate_having_expr(
+        &self,
+        expr: &Expr,
+        row: &Vec<Value>,
+        select_columns: &[(String, Option<Function>)],
+    ) -> Value {
+        match expr {
+            Expr::Function(func) => {
+                let index = select_columns
+                    .iter()
+                    .position(|(_, f)| f.as_ref() == Some(func))
+                    .unwrap();
+                row[index].clone()
+            }
+            Expr::Value(v) => v.clone(),
+            _ => Value::Null,
+        }
     }
 
     fn evaluate_limit_expr(limit: &Expr) -> DbResult<usize> {

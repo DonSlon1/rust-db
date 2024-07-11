@@ -434,6 +434,17 @@ mod tests {
         assert!(result.is_ok());
         if let QueryResult::Rows(data) = result.unwrap() {
             assert_eq!(data.rows.len(), 1);
+            assert_eq!(
+                data.columns,
+                vec!["customer".to_string(), "SUM(amount)".to_string()]
+            );
+            assert_eq!(
+                data.rows[0],
+                vec![
+                    Value::SingleQuotedString("Alice".to_string()),
+                    Value::Number("400".to_string(), false)
+                ]
+            );
         } else {
             panic!("Expected Success QueryResult");
         }
