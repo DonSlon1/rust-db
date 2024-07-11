@@ -473,6 +473,7 @@ impl Database {
 
 #[derive(Clone)]
 pub struct Table {
+    #[allow(unused)]
     name: String,
     columns: Vec<ColumnDef>,
     rows: Vec<Row>,
@@ -589,12 +590,6 @@ impl SelectResult {
             columns: Vec::new(),
             rows: Vec::new(),
         }
-    }
-
-    pub fn to_response_data(self) -> HashMap<String, Vec<String>> {
-        let result = HashMap::new();
-
-        result
     }
 }
 // Represent a row in a table

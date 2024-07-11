@@ -3,7 +3,6 @@ mod test;
 
 use crate::storage::{Database, QueryResult, SelectResultResponse};
 use serde_json::json;
-use std::fmt::format;
 use std::sync::{Arc, RwLock};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
